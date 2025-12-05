@@ -177,7 +177,7 @@ func setupRouter(handler *handlers.Handler, sessionMgr *session.Manager, cfg *co
 func printRoutes(router *mux.Router) {
 	fmt.Println("\nRegistered routes:")
 	fmt.Println("==================")
-	router.Walk(func(route *mux.Route, router *mux.Router, ancestors []*mux.Route) error {
+	_ = router.Walk(func(route *mux.Route, router *mux.Router, ancestors []*mux.Route) error {
 		path, err := route.GetPathTemplate()
 		if err != nil {
 			return nil
