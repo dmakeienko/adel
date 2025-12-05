@@ -551,7 +551,7 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 			attributes = strings.Split(attrs, ",")
 		}
 		if limitStr := r.URL.Query().Get("sizeLimit"); limitStr != "" {
-			fmt.Sscanf(limitStr, "%d", &sizeLimit)
+			_, _ = fmt.Sscanf(limitStr, "%d", &sizeLimit)
 		}
 	} else {
 		var req models.SearchRequest
@@ -823,7 +823,7 @@ func isUserEnabled(uac string) bool {
 	}
 	// UAC flag 0x0002 (2) means account is disabled
 	var uacInt int
-	if _, err := fmt.Sscanf(uac, "%d", &uacInt); err != nil {
+	if n, err := fmt.Sscanf(uac, "%d", &uacInt); err != nil || n != 1 {
 		return true
 	}
 	return (uacInt & 0x0002) == 0

@@ -194,7 +194,7 @@ func (m *Manager) createLDAPConnection() (*ldap.Conn, error) {
 	if m.cfg.AD.UseSSL {
 		// LDAPS connection
 		tlsConfig := &tls.Config{
-			InsecureSkipVerify: m.cfg.AD.SkipTLS,
+			InsecureSkipVerify: m.cfg.AD.SkipTLS, // #nosec G402
 			ServerName:         m.cfg.AD.Server,
 		}
 
@@ -219,7 +219,7 @@ func (m *Manager) createLDAPConnection() (*ldap.Conn, error) {
 		// Optionally upgrade to TLS via StartTLS
 		if err == nil && !m.cfg.AD.SkipTLS {
 			tlsConfig := &tls.Config{
-				InsecureSkipVerify: true,
+				InsecureSkipVerify: m.cfg.AD.SkipTLS, // #nosec G402
 				ServerName:         m.cfg.AD.Server,
 			}
 			err = conn.StartTLS(tlsConfig)

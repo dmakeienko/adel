@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -20,6 +21,13 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		slog.Error("application failed", "error", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	// Load .env file if it exists
 	if err := godotenv.Load(); err != nil {
 		slog.Info("No .env file found, using environment variables")
@@ -28,8 +36,7 @@ func main() {
 	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
-		slog.Error("Failed to load configuration", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to load configuration: %w", err)
 	}
 
 	// Initialize structured logger based on config
@@ -74,6 +81,9 @@ func main() {
 	shutdown := make(chan os.Signal, 1)
 	signal.Notify(shutdown, os.Interrupt, syscall.SIGTERM)
 
+	// Channel for server errors
+	serverErrors := make(chan error, 1)
+
 	// Start server in goroutine
 	go func() {
 		useTLS := cfg.TLS.Enabled && certsExist(cfg.TLS.CertFile, cfg.TLS.KeyFile)
@@ -82,9 +92,8 @@ func main() {
 			slog.Info("Starting HTTPS server", "port", cfg.Server.Port)
 			slog.Info("AD Server configured", "server", cfg.AD.Server, "port", cfg.AD.Port)
 
-			if err := server.ListenAndServeTLS(cfg.TLS.CertFile, cfg.TLS.KeyFile); err != nil && err != http.ErrServerClosed {
-				slog.Error("Failed to start HTTPS server", "error", err)
-				os.Exit(1)
+			if err := server.ListenAndServeTLS(cfg.TLS.CertFile, cfg.TLS.KeyFile); !errors.Is(err, http.ErrServerClosed) {
+				serverErrors <- fmt.Errorf("failed to start HTTPS server: %w", err)
 			}
 		} else {
 			if cfg.TLS.Enabled {
@@ -93,27 +102,30 @@ func main() {
 			slog.Info("Starting HTTP server", "port", cfg.Server.Port)
 			slog.Info("AD Server configured", "server", cfg.AD.Server, "port", cfg.AD.Port)
 
-			if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				slog.Error("Failed to start HTTP server", "error", err)
-				os.Exit(1)
+			if err := server.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+				serverErrors <- fmt.Errorf("failed to start HTTP server: %w", err)
 			}
 		}
 	}()
 
-	// Wait for shutdown signal
-	<-shutdown
-	slog.Info("Shutting down server...")
+	// Wait for shutdown signal or server error
+	select {
+	case err := <-serverErrors:
+		return err
+	case <-shutdown:
+		slog.Info("Shutting down server...")
+	}
 
 	// Graceful shutdown with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	if err := server.Shutdown(ctx); err != nil {
-		slog.Error("Server shutdown failed", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("server shutdown failed: %w", err)
 	}
 
 	slog.Info("Server stopped gracefully")
+	return nil
 }
 
 func setupRouter(handler *handlers.Handler, sessionMgr *session.Manager, cfg *config.Config) *mux.Router {
@@ -169,7 +181,9 @@ func setupRouter(handler *handlers.Handler, sessionMgr *session.Manager, cfg *co
 	protected.HandleFunc("/search", handler.Search).Methods(http.MethodGet, http.MethodPost)
 
 	// Print registered routes
-	printRoutes(router)
+	if cfg.Logging.Debug {
+		printRoutes(router)
+	}
 
 	return router
 }
@@ -177,7 +191,7 @@ func setupRouter(handler *handlers.Handler, sessionMgr *session.Manager, cfg *co
 func printRoutes(router *mux.Router) {
 	fmt.Println("\nRegistered routes:")
 	fmt.Println("==================")
-	router.Walk(func(route *mux.Route, router *mux.Router, ancestors []*mux.Route) error {
+	_ = router.Walk(func(route *mux.Route, router *mux.Router, ancestors []*mux.Route) error {
 		path, err := route.GetPathTemplate()
 		if err != nil {
 			return nil
