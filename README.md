@@ -1,6 +1,6 @@
-# Adel - Active Directory Web Server
+# Adel - Active Directory Engagement Layer
 
-Active Directory Easy Liaison - A Go-based HTTPS server that provides REST API access to Active Directory using LDAP/LDAPS.
+Active Directory Engagement Layer - A Go-based HTTPS server that provides REST API access to Active Directory using LDAP/LDAPS.
 
 ## Features
 
