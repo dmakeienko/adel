@@ -27,11 +27,11 @@ type User struct {
 	Country            string            `json:"c,omitempty"`
 	WhenCreated        string            `json:"whenCreated,omitempty"`
 	WhenChanged        string            `json:"whenChanged,omitempty"`
-	PwdLastSet         *time.Time        `json:"pwdLastSet,omitempty"`
-	AccountExpires     *time.Time        `json:"accountExpires,omitempty"`
+	PwdLastSet         *time.Time        `json:"pwdLastSet"`
+	AccountExpires     *time.Time        `json:"accountExpires"`
 	Enabled            bool              `json:"enabled"`
 	Attributes         map[string]string `json:"attributes,omitempty"`
-	PasswordExpiryDate *time.Time        `json:"passwordExpiryDate,omitempty"`
+	PasswordExpiryDate *time.Time        `json:"passwordExpiryDate"`
 }
 
 // Group represents an Active Directory group
