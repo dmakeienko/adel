@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.1.0](https://github.com/dmakeienko/adel/compare/v1.0.0...v1.1.0) (2025-12-07)
+
+
+### Features
+
+* add "msDS-UserPasswordExpiryTimeComputed" ([b32d83e](https://github.com/dmakeienko/adel/commit/b32d83e296b2e8da157160009f37950cafb850f4))
+* return "accountExpires" attribute in correct format ([c1b82a6](https://github.com/dmakeienko/adel/commit/c1b82a6a098b568aae3946b737b92ae2a0bd4e1c))
+* return pwdLastSet in correct format ([71ac1e0](https://github.com/dmakeienko/adel/commit/71ac1e09af18204f8c06cf6d5e6121108122478f))
+* return pwdLastSet in correct format ([cee75ac](https://github.com/dmakeienko/adel/commit/cee75ac27444ec221d9811ad58bba5c4a7fc21eb))
+
+
+### Bug Fixes
+
+* return null for account expiration fields ([0f09298](https://github.com/dmakeienko/adel/commit/0f09298297e7cdd1966ff1f61c1c29381a978c03))
+
 ## 1.0.0 (2025-12-05)
 
 
