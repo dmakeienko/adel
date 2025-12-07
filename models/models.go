@@ -27,6 +27,7 @@ type User struct {
 	Country           string            `json:"c,omitempty"`
 	WhenCreated       string            `json:"whenCreated,omitempty"`
 	WhenChanged       string            `json:"whenChanged,omitempty"`
+	PwdLastSet        time.Time         `json:"pwdLastSet,omitempty"`
 	Enabled           bool              `json:"enabled"`
 	Attributes        map[string]string `json:"attributes,omitempty"`
 }

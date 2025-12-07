@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -781,6 +782,7 @@ func getUserAttributes() []string {
 		"whenCreated",
 		"whenChanged",
 		"userAccountControl",
+		"pwdLastSet",
 	}
 }
 
@@ -810,6 +812,7 @@ func entryToUser(entry *ldap.Entry) *models.User {
 		Country:           entry.GetAttributeValue("c"),
 		WhenCreated:       entry.GetAttributeValue("whenCreated"),
 		WhenChanged:       entry.GetAttributeValue("whenChanged"),
+		PwdLastSet:        filetimeToUnixTime(entry.GetAttributeValue("pwdLastSet")),
 		Enabled:           isUserEnabled(entry.GetAttributeValue("userAccountControl")),
 	}
 
@@ -864,4 +867,37 @@ func logLDAPError(operation string, err error, context map[string]string) {
 	}
 
 	slog.Error("LDAP operation failed", attrs...)
+}
+
+// filetimeToUnixTime converts a Windows FILETIME string to Unix time
+func filetimeToUnixTime(filetimeStr string) time.Time {
+	// 0: The user must change their password at the next logon.
+	if filetimeStr == "" || filetimeStr == "0" {
+		return time.Time{}
+	}
+
+	val, err := strconv.ParseUint(filetimeStr, 10, 64)
+	if err != nil {
+		slog.Error("Cannot parse filetime", "value", filetimeStr, "error", err)
+		return time.Time{}
+	}
+
+	// Windows FILETIME epoch starts at January 1, 1601
+	// Unix epoch starts at January 1, 1970
+	// The difference is 116444736000000000 in 100-nanosecond intervals
+	const windowsToUnixEpochDiff = 116444736000000000
+
+	if val < windowsToUnixEpochDiff {
+		// Invalid value - before Unix epoch
+		return time.Time{}
+	}
+
+	// Subtract the Unix epoch difference
+	val -= windowsToUnixEpochDiff
+
+	// Convert from 100-nanosecond intervals to nanoseconds
+	nanoseconds := int64(val * 100)
+
+	// Convert to UTC Go time.Time
+	return time.Unix(0, nanoseconds).UTC()
 }
