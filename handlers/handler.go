@@ -874,16 +874,23 @@ func logLDAPError(operation string, err error, context map[string]string) {
 }
 
 // filetimeToUnixTime converts a Windows FILETIME string to Unix time
-func filetimeToUnixTime(filetimeStr string) time.Time {
-	// 0: The user must change their password at the next logon.
+// Returns nil for special AD values: 0 (not set/must change at next logon) and 0x7FFFFFFFFFFFFFFF (never expires)
+func filetimeToUnixTime(filetimeStr string) *time.Time {
+	// 0: The user must change their password at the next logon or value is not set
 	if filetimeStr == "" || filetimeStr == "0" {
-		return time.Time{}
+		return nil
 	}
 
 	val, err := strconv.ParseUint(filetimeStr, 10, 64)
 	if err != nil {
 		slog.Error("Cannot parse filetime", "value", filetimeStr, "error", err)
-		return time.Time{}
+		return nil
+	}
+
+	// 0x7FFFFFFFFFFFFFFF (9223372036854775807) = never expires in Active Directory
+	// Also check for values that would overflow or are unreasonably far in the future
+	if val >= 9223372036854775807 {
+		return nil
 	}
 
 	// Windows FILETIME epoch starts at January 1, 1601
@@ -893,7 +900,7 @@ func filetimeToUnixTime(filetimeStr string) time.Time {
 
 	if val < windowsToUnixEpochDiff {
 		// Invalid value - before Unix epoch
-		return time.Time{}
+		return nil
 	}
 
 	// Subtract the Unix epoch difference
@@ -903,5 +910,6 @@ func filetimeToUnixTime(filetimeStr string) time.Time {
 	nanoseconds := int64(val * 100)
 
 	// Convert to UTC Go time.Time
-	return time.Unix(0, nanoseconds).UTC()
+	t := time.Unix(0, nanoseconds).UTC()
+	return &t
 }
