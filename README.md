@@ -87,7 +87,7 @@ make docker-build
 make docker-run
 ```
 
-The server will start on `https://localhost:8443`
+The server will start on `https://localhost:8080`
 
 ## API Endpoints
 
@@ -95,12 +95,12 @@ The server will start on `https://localhost:8443`
 
 #### Health Check
 ```bash
-curl -k https://localhost:8443/health
+curl -k https://localhost:8080/health
 ```
 
 #### Login
 ```bash
-curl -k -X POST https://localhost:8443/api/v1/login \
+curl -k -X POST https://localhost:8080/api/v1/login \
   -H "Content-Type: application/json" \
   -d '{"username":"johndoe","password":"password123"}'
 ```
@@ -117,7 +117,7 @@ Response:
 
 #### Logout
 ```bash
-curl -k -X POST https://localhost:8443/api/v1/logout \
+curl -k -X POST https://localhost:8080/api/v1/logout \
   -H "Content-Type: application/json" \
   -d '{"sessionId":"your-session-id"}'
 ```
@@ -126,19 +126,19 @@ curl -k -X POST https://localhost:8443/api/v1/logout \
 
 #### Get Current User
 ```bash
-curl -k https://localhost:8443/api/v1/users/me \
+curl -k https://localhost:8080/api/v1/users/me \
   -H "X-Session-ID: your-session-id"
 ```
 
 #### Get User by Username
 ```bash
-curl -k https://localhost:8443/api/v1/users/johndoe \
+curl -k https://localhost:8080/api/v1/users/johndoe \
   -H "X-Session-ID: your-session-id"
 ```
 
 #### Edit User Attributes
 ```bash
-curl -k -X PUT https://localhost:8443/api/v1/users \
+curl -k -X PUT https://localhost:8080/api/v1/users \
   -H "Content-Type: application/json" \
   -H "X-Session-ID: your-session-id" \
   -d '{
@@ -152,17 +152,17 @@ curl -k -X PUT https://localhost:8443/api/v1/users \
 
 #### Get All Groups
 ```bash
-curl -k https://localhost:8443/api/v1/groups \
+curl -k https://localhost:8080/api/v1/groups \
   -H "X-Session-ID: your-session-id"
 
 # With optional baseDN
-curl -k "https://localhost:8443/api/v1/groups?baseDN=ou=Groups,dc=example,dc=com" \
+curl -k "https://localhost:8080/api/v1/groups?baseDN=ou=Groups,dc=example,dc=com" \
   -H "X-Session-ID: your-session-id"
 ```
 
 #### Add User to Group
 ```bash
-curl -k -X POST https://localhost:8443/api/v1/groups/add-member \
+curl -k -X POST https://localhost:8080/api/v1/groups/add-member \
   -H "Content-Type: application/json" \
   -H "X-Session-ID: your-session-id" \
   -d '{"username":"johndoe","groupName":"Developers"}'
@@ -170,7 +170,7 @@ curl -k -X POST https://localhost:8443/api/v1/groups/add-member \
 
 #### Remove User from Group
 ```bash
-curl -k -X POST https://localhost:8443/api/v1/groups/remove-member \
+curl -k -X POST https://localhost:8080/api/v1/groups/remove-member \
   -H "Content-Type: application/json" \
   -H "X-Session-ID: your-session-id" \
   -d '{"username":"johndoe","groupName":"Developers"}'
@@ -179,11 +179,11 @@ curl -k -X POST https://localhost:8443/api/v1/groups/remove-member \
 #### Search (with custom Base DN)
 ```bash
 # GET request with query parameters
-curl -k "https://localhost:8443/api/v1/search?baseDN=ou=Users,dc=example,dc=com&filter=(objectClass=user)&attributes=cn,mail,title&sizeLimit=100" \
+curl -k "https://localhost:8080/api/v1/search?baseDN=ou=Users,dc=example,dc=com&filter=(objectClass=user)&attributes=cn,mail,title&sizeLimit=100" \
   -H "X-Session-ID: your-session-id"
 
 # POST request with JSON body
-curl -k -X POST https://localhost:8443/api/v1/search \
+curl -k -X POST https://localhost:8080/api/v1/search \
   -H "Content-Type: application/json" \
   -H "X-Session-ID: your-session-id" \
   -d '{
@@ -218,7 +218,7 @@ Response:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| PORT | Server port | 8443 |
+| PORT | Server port | 8080 |
 | ENVIRONMENT | Environment (development/production) | development |
 | READ_TIMEOUT | Read timeout in seconds | 60 |
 | WRITE_TIMEOUT | Write timeout in seconds | 60 |

@@ -75,7 +75,7 @@ docker-build:
 
 # Run Docker container
 docker-run:
-	docker run -p 8443:8443 --env-file .env $(APP_NAME):latest
+	docker run -p 8080:8080 --env-file .env $(APP_NAME):latest
 
 # Show help
 help:

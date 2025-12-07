@@ -66,7 +66,7 @@ type LoggingConfig struct {
 func Load() (*Config, error) {
 	cfg := &Config{
 		Server: ServerConfig{
-			Port:         getEnv("PORT", "8443"),
+			Port:         getEnv("PORT", "8080"),
 			Environment:  getEnv("ENVIRONMENT", "development"),
 			ReadTimeout:  getDurationEnv("READ_TIMEOUT", 60) * time.Second,
 			WriteTimeout: getDurationEnv("WRITE_TIMEOUT", 60) * time.Second,
