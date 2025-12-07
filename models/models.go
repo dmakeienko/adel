@@ -4,33 +4,34 @@ import "time"
 
 // User represents an Active Directory user
 type User struct {
-	DN                string            `json:"dn"`
-	SAMAccountName    string            `json:"sAMAccountName"`
-	UserPrincipalName string            `json:"userPrincipalName,omitempty"`
-	DisplayName       string            `json:"displayName,omitempty"`
-	GivenName         string            `json:"givenName,omitempty"`
-	Surname           string            `json:"sn,omitempty"`
-	Email             string            `json:"mail,omitempty"`
-	Department        string            `json:"department,omitempty"`
-	Title             string            `json:"title,omitempty"`
-	Manager           string            `json:"manager,omitempty"`
-	MemberOf          []string          `json:"memberOf,omitempty"`
-	Description       string            `json:"description,omitempty"`
-	TelephoneNumber   string            `json:"telephoneNumber,omitempty"`
-	Mobile            string            `json:"mobile,omitempty"`
-	EmployeeID        string            `json:"employeeID,omitempty"`
-	Company           string            `json:"company,omitempty"`
-	StreetAddress     string            `json:"streetAddress,omitempty"`
-	City              string            `json:"l,omitempty"`
-	State             string            `json:"st,omitempty"`
-	PostalCode        string            `json:"postalCode,omitempty"`
-	Country           string            `json:"c,omitempty"`
-	WhenCreated       string            `json:"whenCreated,omitempty"`
-	WhenChanged       string            `json:"whenChanged,omitempty"`
-	PwdLastSet        time.Time         `json:"pwdLastSet,omitempty"`
-	AccountExpires    time.Time         `json:"accountExpires,omitempty"`
-	Enabled           bool              `json:"enabled"`
-	Attributes        map[string]string `json:"attributes,omitempty"`
+	DN                 string            `json:"dn"`
+	SAMAccountName     string            `json:"sAMAccountName"`
+	UserPrincipalName  string            `json:"userPrincipalName,omitempty"`
+	DisplayName        string            `json:"displayName,omitempty"`
+	GivenName          string            `json:"givenName,omitempty"`
+	Surname            string            `json:"sn,omitempty"`
+	Email              string            `json:"mail,omitempty"`
+	Department         string            `json:"department,omitempty"`
+	Title              string            `json:"title,omitempty"`
+	Manager            string            `json:"manager,omitempty"`
+	MemberOf           []string          `json:"memberOf,omitempty"`
+	Description        string            `json:"description,omitempty"`
+	TelephoneNumber    string            `json:"telephoneNumber,omitempty"`
+	Mobile             string            `json:"mobile,omitempty"`
+	EmployeeID         string            `json:"employeeID,omitempty"`
+	Company            string            `json:"company,omitempty"`
+	StreetAddress      string            `json:"streetAddress,omitempty"`
+	City               string            `json:"l,omitempty"`
+	State              string            `json:"st,omitempty"`
+	PostalCode         string            `json:"postalCode,omitempty"`
+	Country            string            `json:"c,omitempty"`
+	WhenCreated        string            `json:"whenCreated,omitempty"`
+	WhenChanged        string            `json:"whenChanged,omitempty"`
+	PwdLastSet         time.Time         `json:"pwdLastSet,omitempty"`
+	AccountExpires     time.Time         `json:"accountExpires,omitempty"`
+	Enabled            bool              `json:"enabled"`
+	Attributes         map[string]string `json:"attributes,omitempty"`
+	PasswordExpiryDate time.Time         `json:"passwordExpiryDate,omitempty"`
 }
 
 // Group represents an Active Directory group
