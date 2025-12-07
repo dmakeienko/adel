@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.25-alpine AS builder
+FROM golang:1.25-alpine3.23 AS builder
 
 # Set working directory
 WORKDIR /app
@@ -17,10 +17,10 @@ RUN go mod download
 COPY . .
 
 # Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main cmd/server/main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main .
 
 # Final stage
-FROM alpine:latest
+FROM alpine:3.23
 
 # Install ca-certificates for HTTPS requests
 RUN apk --no-cache add ca-certificates
@@ -30,7 +30,7 @@ RUN addgroup -g 1001 -S adel && \
     adduser -S adel -u 1001
 
 # Set working directory
-WORKDIR /root/
+WORKDIR /home/adel
 
 # Copy the binary from builder stage
 COPY --from=builder /app/main .
