@@ -28,6 +28,7 @@ type User struct {
 	WhenCreated       string            `json:"whenCreated,omitempty"`
 	WhenChanged       string            `json:"whenChanged,omitempty"`
 	PwdLastSet        time.Time         `json:"pwdLastSet,omitempty"`
+	AccountExpires    time.Time         `json:"accountExpires,omitempty"`
 	Enabled           bool              `json:"enabled"`
 	Attributes        map[string]string `json:"attributes,omitempty"`
 }

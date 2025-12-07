@@ -783,6 +783,7 @@ func getUserAttributes() []string {
 		"whenChanged",
 		"userAccountControl",
 		"pwdLastSet",
+		"accountExpires",
 	}
 }
 
@@ -814,6 +815,7 @@ func entryToUser(entry *ldap.Entry) *models.User {
 		WhenChanged:       entry.GetAttributeValue("whenChanged"),
 		PwdLastSet:        filetimeToUnixTime(entry.GetAttributeValue("pwdLastSet")),
 		Enabled:           isUserEnabled(entry.GetAttributeValue("userAccountControl")),
+		AccountExpires:    filetimeToUnixTime(entry.GetAttributeValue("accountExpires")),
 	}
 
 	return user
