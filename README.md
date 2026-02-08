@@ -1,5 +1,7 @@
 # Adel - Active Directory Engagement Layer
 
+[![SonarQube Cloud](https://sonarcloud.io/images/project_badges/sonarcloud-light.svg)](https://sonarcloud.io/summary/new_code?id=dmakeienko_adel)
+
 Active Directory Engagement Layer - A Go-based HTTPS server that provides REST API access to Active Directory using LDAP/LDAPS.
 
 ## Features
