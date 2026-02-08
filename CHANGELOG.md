@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.2.0](https://github.com/dmakeienko/adel/compare/v1.1.0...v1.2.0) (2026-02-08)
+
+
+### Features
+
+* add ability to change user password ([178fd06](https://github.com/dmakeienko/adel/commit/178fd062094a6341307d90f0db5523c955cbccf7))
+* add ability to change user password ([8c7c272](https://github.com/dmakeienko/adel/commit/8c7c272f533de28286bb89e58fab65ac8329e4d4))
+
+
+### Bug Fixes
+
+* G115: integer overflow conversion uint64 -&gt; int64 (gosec) ([8883bee](https://github.com/dmakeienko/adel/commit/8883bee728241753a326d8c711a37ae445097c7c))
+
 ## [1.1.0](https://github.com/dmakeienko/adel/compare/v1.0.0...v1.1.0) (2025-12-07)
 
 
