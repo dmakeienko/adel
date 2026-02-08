@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -907,7 +908,7 @@ func filetimeToUnixTime(filetimeStr string) *time.Time {
 	val -= windowsToUnixEpochDiff
 
 	// Convert from 100-nanosecond intervals to nanoseconds
-	nanoseconds := int64(val * 100)
+	nanoseconds, _ := convertUint64ToInt64(val * 100)
 
 	// Convert to UTC Go time.Time
 	t := time.Unix(0, nanoseconds).UTC()
@@ -1028,4 +1029,11 @@ func (h *Handler) ChangeUserPassword(w http.ResponseWriter, r *http.Request) {
 		Success: true,
 		Message: "Password changed successfully",
 	})
+}
+
+func convertUint64ToInt64(u uint64) (int64, error) {
+	if u > math.MaxInt64 {
+		return 0, fmt.Errorf("uint64 value %d is too large to fit into int64", u)
+	}
+	return int64(u), nil
 }
