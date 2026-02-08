@@ -153,3 +153,10 @@ type SessionInfo struct {
 	CreatedAt time.Time `json:"createdAt"`
 	ExpiresAt time.Time `json:"expiresAt"`
 }
+
+// ChangeUserPasswordRequest represents a password change request
+type ChangeUserPasswordRequest struct {
+	Username    string `json:"username,omitempty"`
+	OldPassword string `json:"oldPassword"`
+	NewPassword string `json:"newPassword"`
+}
