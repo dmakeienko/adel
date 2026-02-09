@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/dmakeienko/adel/compare/v1.2.0...v1.2.1) (2026-02-09)
+
+
+### Bug Fixes
+
+* maintanence release to fix binaries upload ([3cfd662](https://github.com/dmakeienko/adel/commit/3cfd662328662f7209ea8a5419f973e602e0a233))
+
 ## [1.2.0](https://github.com/dmakeienko/adel/compare/v1.1.0...v1.2.0) (2026-02-08)
 
 
