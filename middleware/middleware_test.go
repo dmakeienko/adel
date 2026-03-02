@@ -81,8 +81,8 @@ func TestSecurityHeaders(t *testing.T) {
 
 	expectedHeaders := map[string]string{
 		"X-Content-Type-Options":    "nosniff",
-		"X-Frame-Options":          "DENY",
-		"X-Xss-Protection":         "1; mode=block",
+		"X-Frame-Options":           "DENY",
+		"X-Xss-Protection":          "1; mode=block",
 		"Strict-Transport-Security": "max-age=31536000; includeSubDomains",
 	}
 
