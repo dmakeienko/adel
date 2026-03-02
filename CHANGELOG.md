@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.0](https://github.com/dmakeienko/adel/compare/v1.2.2...v1.3.0) (2026-03-02)
+
+
+### Features
+
+* add filters for search, exclusion for groups and other objects ([7cb7f27](https://github.com/dmakeienko/adel/commit/7cb7f27bfc605e6d7bec0d63545dce45f78d92c7))
+* add filters for search, exclusion for groups and other objects ([a0198b8](https://github.com/dmakeienko/adel/commit/a0198b8f9495a772a4e93492df6cca30d27d3c4c))
+
 ## [1.2.2](https://github.com/dmakeienko/adel/compare/v1.2.1...v1.2.2) (2026-03-02)
 
 
