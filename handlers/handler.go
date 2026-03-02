@@ -451,7 +451,7 @@ func (h *Handler) RemoveUserFromGroup(w http.ResponseWriter, r *http.Request) {
 	modifyReq := ldap.NewModifyRequest(groupDN, nil)
 	modifyReq.Delete("member", []string{userDN})
 
-	slog.Info("Attempting to remove user from group",
+	slog.Info("Attempting to remove user from group", //nolint:gosec // G706: structured logging with key-value pairs, not string interpolation
 		"username", req.Username,
 		"user_dn", userDN,
 		"group", req.GroupName,
@@ -872,7 +872,7 @@ func logLDAPError(operation string, err error, context map[string]string) {
 		attrs = append(attrs, key, value)
 	}
 
-	slog.Error("LDAP operation failed", attrs...)
+	slog.Error("LDAP operation failed", attrs...) //nolint:gosec // G706: structured logging with key-value pairs, not string interpolation
 }
 
 // filetimeToUnixTime converts a Windows FILETIME string to Unix time
@@ -885,7 +885,7 @@ func filetimeToUnixTime(filetimeStr string) *time.Time {
 
 	val, err := strconv.ParseUint(filetimeStr, 10, 64)
 	if err != nil {
-		slog.Error("Cannot parse filetime", "value", filetimeStr, "error", err)
+		slog.Error("Cannot parse filetime", "value", filetimeStr, "error", err) //nolint:gosec // G706: structured logging with key-value pairs, not string interpolation
 		return nil
 	}
 
