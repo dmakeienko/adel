@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf16"
 
 	"adel/config"
 	"adel/middleware"
@@ -344,7 +345,7 @@ func (h *Handler) AddUserToGroup(w http.ResponseWriter, r *http.Request) {
 	modifyReq := ldap.NewModifyRequest(groupDN, nil)
 	modifyReq.Add("member", []string{userDN})
 
-	slog.Info("Attempting to add user to group",
+	slog.Info("Attempting to add user to group", //nolint:gosec // G706: structured logging with key-value pairs, not string interpolation
 		"username", req.Username,
 		"user_dn", userDN,
 		"group", req.GroupName,
@@ -965,12 +966,13 @@ func (h *Handler) ChangeUserPassword(w http.ResponseWriter, r *http.Request) {
 	// and set via the unicodePwd attribute over a secure (TLS/LDAPS) connection.
 	encodePassword := func(password string) []byte {
 		quoted := `"` + password + `"`
-		utf16 := make([]byte, len(quoted)*2)
-		for i, c := range quoted {
-			utf16[i*2] = byte(c)
-			utf16[i*2+1] = 0
+		encoded := utf16.Encode([]rune(quoted))
+		result := make([]byte, len(encoded)*2)
+		for i, v := range encoded {
+			result[i*2] = byte(v)
+			result[i*2+1] = byte(v >> 8)
 		}
-		return utf16
+		return result
 	}
 
 	modifyReq := ldap.NewModifyRequest(userDN, nil)
