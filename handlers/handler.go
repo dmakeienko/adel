@@ -1025,7 +1025,7 @@ func (h *Handler) ChangeUserPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slog.Info("Password changed successfully", "userDN", userDN)
+	slog.Info("Password changed successfully", "userDN", userDN) //nolint:gosec // G706: structured logging with key-value pairs, not string interpolation
 
 	writeJSON(w, http.StatusOK, models.APIResponse{
 		Success: true,
