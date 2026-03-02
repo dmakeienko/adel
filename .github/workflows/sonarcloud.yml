@@ -53,10 +53,9 @@ jobs:
         with:
           go-version-file: 'go.mod'
 
-      - name: Run tests with coverage (optional)
+      - name: Run tests with coverage
         run: |
           go test -v -coverprofile=coverage.out ./...
-        continue-on-error: true
 
       - name: Analyze with SonarCloud
         uses: SonarSource/sonarcloud-github-action@v3.1.0
