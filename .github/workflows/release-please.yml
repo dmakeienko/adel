@@ -1,6 +1,6 @@
 on:
   workflow_run:
-    workflows: ["Go Lint", "SonarCloud analysis"]
+    workflows: ["Go Lint"]
     types:
       - completed
     branches:
