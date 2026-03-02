@@ -242,7 +242,7 @@ func (h *Handler) GetAllGroups(w http.ResponseWriter, r *http.Request) {
 	// Get optional baseDN from query params
 	baseDN := r.URL.Query().Get("baseDN")
 	if baseDN == "" {
-		baseDN = h.config.AD.BaseDN
+		baseDN = h.config.AD.GetSearchBaseDN()
 	}
 
 	// Get optional filter from query params
@@ -273,9 +273,13 @@ func (h *Handler) GetAllGroups(w http.ResponseWriter, r *http.Request) {
 
 	groups := make([]*models.Group, 0, len(sr.Entries))
 	for _, entry := range sr.Entries {
+		cn := entry.GetAttributeValue("cn")
+		if h.isExcludedDN(entry.DN) || h.isExcludedGroup(cn, entry.DN) {
+			continue
+		}
 		group := &models.Group{
 			DN:                entry.DN,
-			CN:                entry.GetAttributeValue("cn"),
+			CN:                cn,
 			SAMAccountName:    entry.GetAttributeValue("sAMAccountName"),
 			Description:       entry.GetAttributeValue("description"),
 			GroupType:         entry.GetAttributeValue("groupType"),
@@ -573,7 +577,7 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 
 	// Use defaults if not provided
 	if baseDN == "" {
-		baseDN = h.config.AD.BaseDN
+		baseDN = h.config.AD.GetSearchBaseDN()
 	}
 	if filter == "" {
 		filter = h.config.AD.SearchFilter
@@ -602,9 +606,12 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Convert entries to response format
+	// Convert entries to response format, filtering out excluded OUs
 	entries := make([]*models.SearchEntry, 0, len(sr.Entries))
 	for _, entry := range sr.Entries {
+		if h.isExcludedDN(entry.DN) {
+			continue
+		}
 		attrs := make(map[string][]string)
 		for _, attr := range entry.Attributes {
 			attrs[attr.Name] = attr.Values
@@ -650,10 +657,32 @@ func (h *Handler) SessionInfo(w http.ResponseWriter, r *http.Request) {
 
 // Helper functions
 
+// isExcludedDN checks whether a DN contains any of the excluded object paths.
+func (h *Handler) isExcludedDN(dn string) bool {
+	dnLower := strings.ToLower(dn)
+	for _, excluded := range h.config.AD.ExcludedObjects {
+		if strings.Contains(dnLower, strings.ToLower(excluded)) {
+			return true
+		}
+	}
+	return false
+}
+
+// isExcludedGroup checks whether a group CN or DN matches the excluded groups list.
+func (h *Handler) isExcludedGroup(cn, dn string) bool {
+	for _, excluded := range h.config.AD.ExcludedGroups {
+		excludedLower := strings.ToLower(excluded)
+		if strings.ToLower(cn) == excludedLower || strings.EqualFold(dn, excluded) {
+			return true
+		}
+	}
+	return false
+}
+
 // findUser searches for a user and returns their details
 func (h *Handler) findUser(conn *ldap.Conn, username string) (*models.User, error) {
 	searchReq := ldap.NewSearchRequest(
-		h.config.AD.BaseDN,
+		h.config.AD.GetSearchBaseDN(),
 		ldap.ScopeWholeSubtree,
 		ldap.NeverDerefAliases,
 		1, 0, false,
@@ -675,13 +704,17 @@ func (h *Handler) findUser(conn *ldap.Conn, username string) (*models.User, erro
 		return nil, fmt.Errorf("user not found")
 	}
 
+	if h.isExcludedDN(sr.Entries[0].DN) {
+		return nil, fmt.Errorf("user not found")
+	}
+
 	return entryToUser(sr.Entries[0]), nil
 }
 
 // findUserDN finds the DN for a user
 func (h *Handler) findUserDN(conn *ldap.Conn, username string) (string, error) {
 	searchReq := ldap.NewSearchRequest(
-		h.config.AD.BaseDN,
+		h.config.AD.GetSearchBaseDN(),
 		ldap.ScopeWholeSubtree,
 		ldap.NeverDerefAliases,
 		1, 0, false,
@@ -703,13 +736,17 @@ func (h *Handler) findUserDN(conn *ldap.Conn, username string) (string, error) {
 		return "", fmt.Errorf("user not found")
 	}
 
+	if h.isExcludedDN(sr.Entries[0].DN) {
+		return "", fmt.Errorf("user not found")
+	}
+
 	return sr.Entries[0].DN, nil
 }
 
 // findGroupDN finds the DN for a group
 func (h *Handler) findGroupDN(conn *ldap.Conn, groupName string) (string, error) {
 	searchReq := ldap.NewSearchRequest(
-		h.config.AD.BaseDN,
+		h.config.AD.GetSearchBaseDN(),
 		ldap.ScopeWholeSubtree,
 		ldap.NeverDerefAliases,
 		1, 0, false,
@@ -730,7 +767,12 @@ func (h *Handler) findGroupDN(conn *ldap.Conn, groupName string) (string, error)
 		return "", fmt.Errorf("group not found")
 	}
 
-	return sr.Entries[0].DN, nil
+	dn := sr.Entries[0].DN
+	if h.isExcludedDN(dn) || h.isExcludedGroup(groupName, dn) {
+		return "", fmt.Errorf("group not found")
+	}
+
+	return dn, nil
 }
 
 // getUserByDN retrieves a user by their DN
