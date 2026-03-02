@@ -1046,7 +1046,7 @@ func (h *Handler) ChangeUserPassword(w http.ResponseWriter, r *http.Request) {
 			strings.Contains(err.Error(), "LDAP Result Code 19") {
 			writeJSON(w, http.StatusBadRequest, models.APIResponse{
 				Success: false,
-				Error:   "Password does not meet complexity requirements",
+				Error:   "Password does not meet complexity or history requirements",
 			})
 			return
 		}
