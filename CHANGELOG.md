@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.2](https://github.com/dmakeienko/adel/compare/v1.2.1...v1.2.2) (2026-03-02)
+
+
+### Bug Fixes
+
+* G115 (integer overflow rune -&gt; byte); update nolintlint ([c5404f3](https://github.com/dmakeienko/adel/commit/c5404f364d0c217a1850fb881c512bc16ea0c652))
+
 ## [1.2.1](https://github.com/dmakeienko/adel/compare/v1.2.0...v1.2.1) (2026-02-09)
 
 
