@@ -30,7 +30,7 @@ func SetDebugLogging(enabled bool) {
 // debugLog logs a message only if debug logging is enabled
 func debugLog(msg string, args ...interface{}) {
 	if debugEnabled {
-		slog.Debug(msg, args...)
+		slog.Debug(msg, args...) //nolint:gosec // G706: structured logging with key-value pairs, not string interpolation
 	}
 }
 
@@ -58,7 +58,7 @@ func Logging(next http.Handler) http.Handler {
 
 		next.ServeHTTP(wrapped, r)
 
-		slog.Info("HTTP request",
+		slog.Info("HTTP request", //nolint:gosec // G706: structured logging with key-value pairs, not string interpolation
 			"remote_addr", r.RemoteAddr,
 			"method", r.Method,
 			"path", r.URL.Path,

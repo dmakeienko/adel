@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf16"
 
 	"adel/config"
 	"adel/middleware"
@@ -344,7 +345,7 @@ func (h *Handler) AddUserToGroup(w http.ResponseWriter, r *http.Request) {
 	modifyReq := ldap.NewModifyRequest(groupDN, nil)
 	modifyReq.Add("member", []string{userDN})
 
-	slog.Info("Attempting to add user to group",
+	slog.Info("Attempting to add user to group", //nolint:gosec // G706: structured logging with key-value pairs, not string interpolation
 		"username", req.Username,
 		"user_dn", userDN,
 		"group", req.GroupName,
@@ -450,7 +451,7 @@ func (h *Handler) RemoveUserFromGroup(w http.ResponseWriter, r *http.Request) {
 	modifyReq := ldap.NewModifyRequest(groupDN, nil)
 	modifyReq.Delete("member", []string{userDN})
 
-	slog.Info("Attempting to remove user from group",
+	slog.Info("Attempting to remove user from group", //nolint:gosec // G706: structured logging with key-value pairs, not string interpolation
 		"username", req.Username,
 		"user_dn", userDN,
 		"group", req.GroupName,
@@ -871,7 +872,7 @@ func logLDAPError(operation string, err error, context map[string]string) {
 		attrs = append(attrs, key, value)
 	}
 
-	slog.Error("LDAP operation failed", attrs...)
+	slog.Error("LDAP operation failed", attrs...) //nolint:gosec // G706: structured logging with key-value pairs, not string interpolation
 }
 
 // filetimeToUnixTime converts a Windows FILETIME string to Unix time
@@ -884,7 +885,7 @@ func filetimeToUnixTime(filetimeStr string) *time.Time {
 
 	val, err := strconv.ParseUint(filetimeStr, 10, 64)
 	if err != nil {
-		slog.Error("Cannot parse filetime", "value", filetimeStr, "error", err)
+		slog.Error("Cannot parse filetime", "value", filetimeStr, "error", err) //nolint:gosec // G706: structured logging with key-value pairs, not string interpolation
 		return nil
 	}
 
@@ -965,12 +966,13 @@ func (h *Handler) ChangeUserPassword(w http.ResponseWriter, r *http.Request) {
 	// and set via the unicodePwd attribute over a secure (TLS/LDAPS) connection.
 	encodePassword := func(password string) []byte {
 		quoted := `"` + password + `"`
-		utf16 := make([]byte, len(quoted)*2)
-		for i, c := range quoted {
-			utf16[i*2] = byte(c)
-			utf16[i*2+1] = 0
+		encoded := utf16.Encode([]rune(quoted))
+		result := make([]byte, len(encoded)*2)
+		for i, v := range encoded {
+			result[i*2] = byte(v)
+			result[i*2+1] = byte(v >> 8)
 		}
-		return utf16
+		return result
 	}
 
 	modifyReq := ldap.NewModifyRequest(userDN, nil)
@@ -1023,7 +1025,7 @@ func (h *Handler) ChangeUserPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slog.Info("Password changed successfully", "userDN", userDN)
+	slog.Info("Password changed successfully", "userDN", userDN) //nolint:gosec // G706: structured logging with key-value pairs, not string interpolation
 
 	writeJSON(w, http.StatusOK, models.APIResponse{
 		Success: true,

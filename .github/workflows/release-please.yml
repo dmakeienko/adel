@@ -1,5 +1,8 @@
 on:
-  push:
+  workflow_run:
+    workflows: ["Go Lint"]
+    types:
+      - completed
     branches:
       - main
 
@@ -13,6 +16,7 @@ name: release-please
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
       - uses: googleapis/release-please-action@v4
         with:

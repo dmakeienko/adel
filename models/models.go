@@ -49,7 +49,7 @@ type Group struct {
 // LoginRequest represents the login request body
 type LoginRequest struct {
 	Username string `json:"username"`
-	Password string `json:"password"`
+	Password string `json:"password"` //nolint:gosec // G117: this is a request DTO, not a hardcoded secret
 }
 
 // LoginResponse represents the login response
