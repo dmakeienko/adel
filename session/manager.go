@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -237,7 +238,7 @@ func (m *Manager) createLDAPConnection() (*ldap.Conn, error) {
 func (m *Manager) findUserDN(conn *ldap.Conn, username string) (string, error) {
 	// Search for the user
 	searchRequest := ldap.NewSearchRequest(
-		m.cfg.AD.BaseDN,
+		m.cfg.AD.GetSearchBaseDN(),
 		ldap.ScopeWholeSubtree,
 		ldap.NeverDerefAliases,
 		1, 0, false,
@@ -256,7 +257,16 @@ func (m *Manager) findUserDN(conn *ldap.Conn, username string) (string, error) {
 		return "", fmt.Errorf("user not found")
 	}
 
-	return sr.Entries[0].DN, nil
+	// Check if the user is in an excluded object (OU, CN container, etc.)
+	dn := sr.Entries[0].DN
+	dnLower := strings.ToLower(dn)
+	for _, excluded := range m.cfg.AD.ExcludedObjects {
+		if strings.Contains(dnLower, strings.ToLower(excluded)) {
+			return "", fmt.Errorf("user not found")
+		}
+	}
+
+	return dn, nil
 }
 
 // cleanupExpiredSessions periodically removes expired sessions

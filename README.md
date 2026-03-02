@@ -234,9 +234,33 @@ Response:
 | AD_USER_FILTER | LDAP filter for users | (objectClass=user) |
 | AD_GROUP_FILTER | LDAP filter for groups | (objectClass=group) |
 | AD_SEARCH_FILTER | LDAP filter for general searches | (objectClass=*) |
+| AD_SEARCH_BASE_DN | Restrict searches to a specific OU (falls back to AD_BASE_DN if empty) | |
+| AD_EXCLUDED_OBJECTS | Semicolon-separated list of DN path fragments (OUs, CN containers) to exclude from results | |
+| AD_EXCLUDED_GROUPS | Semicolon-separated list of group CNs or DNs to exclude from results | |
 | TLS_ENABLED | Enable HTTPS | true |
 | TLS_CERT_FILE | Path to TLS certificate | certs/server.crt |
 | TLS_KEY_FILE | Path to TLS private key | certs/server.key |
+
+### Search Scope and Exclusions
+
+To restrict API searches to a specific OU instead of the entire domain:
+
+```bash
+AD_BASE_DN=DC=example,DC=com                       # Used for authentication (broad)
+AD_SEARCH_BASE_DN=OU=Corporate,DC=example,DC=com   # Used for listing/searching (narrow)
+```
+
+To hide specific containers from all search results (users, groups, and generic search):
+
+```bash
+AD_EXCLUDED_OBJECTS=CN=Builtin,DC=example,DC=com;OU=Disabled Users,DC=example,DC=com
+```
+
+To hide specific groups from group listings and lookups:
+
+```bash
+AD_EXCLUDED_GROUPS=Domain Admins;Schema Admins;Enterprise Admins
+```
 
 ### LDAPS Configuration
 

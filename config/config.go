@@ -35,6 +35,13 @@ type ADConfig struct {
 	UserFilter   string
 	GroupFilter  string
 	SearchFilter string
+	// SearchBaseDN restricts searches to a specific OU (e.g. "OU=Corp,DC=example,DC=com").
+	// If empty, BaseDN is used.
+	SearchBaseDN string
+	// ExcludedObjects is a list of DN path fragments (OUs, CNs, etc.) whose entries are filtered out of results.
+	ExcludedObjects []string
+	// ExcludedGroups is a list of group CNs or DNs that are filtered out of group results.
+	ExcludedGroups []string
 	// Optional: Path to CA certificate for LDAPS
 	CACertPath string
 }
@@ -73,15 +80,18 @@ func Load() (*Config, error) {
 			IdleTimeout:  getDurationEnv("IDLE_TIMEOUT", 60) * time.Second,
 		},
 		AD: ADConfig{
-			Server:       getEnv("AD_SERVER", ""),
-			Port:         getIntEnv("AD_PORT", 389),
-			BaseDN:       getEnv("AD_BASE_DN", ""),
-			UseSSL:       getBoolEnv("AD_USE_SSL", false),
-			SkipTLS:      getBoolEnv("AD_SKIP_TLS", false),
-			UserFilter:   getEnv("AD_USER_FILTER", "(objectClass=user)"),
-			GroupFilter:  getEnv("AD_GROUP_FILTER", "(objectClass=group)"),
-			SearchFilter: getEnv("AD_SEARCH_FILTER", "(objectClass=*)"),
-			CACertPath:   getEnv("AD_CA_CERT_PATH", ""),
+			Server:          getEnv("AD_SERVER", ""),
+			Port:            getIntEnv("AD_PORT", 389),
+			BaseDN:          getEnv("AD_BASE_DN", ""),
+			UseSSL:          getBoolEnv("AD_USE_SSL", false),
+			SkipTLS:         getBoolEnv("AD_SKIP_TLS", false),
+			UserFilter:      getEnv("AD_USER_FILTER", "(objectClass=user)"),
+			GroupFilter:     getEnv("AD_GROUP_FILTER", "(objectClass=group)"),
+			SearchFilter:    getEnv("AD_SEARCH_FILTER", "(objectClass=*)"),
+			SearchBaseDN:    getEnv("AD_SEARCH_BASE_DN", ""),
+			ExcludedObjects: getDNSliceEnv("AD_EXCLUDED_OBJECTS", nil),
+			ExcludedGroups:  getDNSliceEnv("AD_EXCLUDED_GROUPS", nil),
+			CACertPath:      getEnv("AD_CA_CERT_PATH", ""),
 		},
 		TLS: TLSConfig{
 			Enabled:  getBoolEnv("TLS_ENABLED", true),
@@ -118,6 +128,14 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("AD_BASE_DN is required")
 	}
 	return nil
+}
+
+// GetSearchBaseDN returns SearchBaseDN if set, otherwise falls back to BaseDN.
+func (c *ADConfig) GetSearchBaseDN() string {
+	if c.SearchBaseDN != "" {
+		return c.SearchBaseDN
+	}
+	return c.BaseDN
 }
 
 // GetLDAPURL returns the LDAP connection URL
@@ -168,6 +186,24 @@ func getSliceEnv(key string, defaultValue []string) []string {
 		// Split by comma and trim spaces
 		var result []string
 		for _, item := range splitAndTrim(value, ",") {
+			if item != "" {
+				result = append(result, item)
+			}
+		}
+		if len(result) > 0 {
+			return result
+		}
+	}
+	return defaultValue
+}
+
+// getDNSliceEnv gets a semicolon-separated slice from an environment variable.
+// Semicolons are used instead of commas because DN values contain commas
+// (e.g. "OU=Disabled,DC=example,DC=com;OU=Service Accounts,DC=example,DC=com").
+func getDNSliceEnv(key string, defaultValue []string) []string {
+	if value := os.Getenv(key); value != "" {
+		var result []string
+		for _, item := range splitAndTrim(value, ";") {
 			if item != "" {
 				result = append(result, item)
 			}
