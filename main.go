@@ -15,6 +15,7 @@ import (
 	"adel/handlers"
 	"adel/middleware"
 	"adel/session"
+	"adel/static"
 
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
@@ -180,6 +181,13 @@ func setupRouter(handler *handlers.Handler, sessionMgr *session.Manager, cfg *co
 
 	// Search route
 	protected.HandleFunc("/search", handler.Search).Methods(http.MethodGet, http.MethodPost)
+
+	// SPA catch-all — must be last so all /api/* routes take precedence
+	if spaHandler, err := static.Handler(); err == nil {
+		router.PathPrefix("/").Handler(spaHandler)
+	} else {
+		slog.Warn("Static assets not embedded; UI will not be served", "error", err)
+	}
 
 	// Print registered routes
 	if cfg.Logging.Debug {

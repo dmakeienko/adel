@@ -1,0 +1,50 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+
+  <rect width="1024" height="1024" fill="none"/>
+
+  <!-- Triangle network frame -->
+  <g fill="none" stroke="#266d96" stroke-width="28" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M512 180 L260 610 L764 610 Z"/>
+  </g>
+
+  <!-- Network nodes -->
+  <g fill="#266d96">
+    <circle cx="512" cy="180" r="55"/>
+    <circle cx="260" cy="610" r="55"/>
+    <circle cx="764" cy="610" r="55"/>
+  </g>
+
+  <!-- Main A symbol -->
+  <path
+    fill="#266d96"
+    fill-rule="evenodd"
+    d="
+    M512 330
+    L705 610
+    L612 610
+    L580 545
+    H444
+    L412 610
+    L319 610
+    Z
+
+    M512 415
+    L466 505
+    H558
+    Z
+    "/>
+
+  <!-- ADEL wordmark -->
+  <text
+    x="512"
+    y="860"
+    text-anchor="middle"
+    font-family="Arial, Helvetica, sans-serif"
+    font-size="170"
+    font-weight="700"
+    letter-spacing="14"
+    fill="#266d96">
+    ADEL
+  </text>
+
+</svg>

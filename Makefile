@@ -1,14 +1,24 @@
-.PHONY: build run test clean dev docker-build docker-run setup certs
+.PHONY: build build-ui run test clean dev docker-build docker-run setup certs
 
 # Application name
 APP_NAME=adel
 BUILD_DIR=bin
+WEB_DIR=web
 
-# Build the application
+# Build the React frontend and copy assets into static/dist/
+build-ui:
+	cd $(WEB_DIR) && npm ci && npm run build
+	rm -rf static/dist
+	cp -r $(WEB_DIR)/dist static/dist
+
+# Build the Go binary (embeds whatever is in static/dist/)
 build:
 	go build -o $(BUILD_DIR)/$(APP_NAME) .
 
-# Run the application
+# Full build: frontend then backend
+build-all: build-ui build
+
+# Run the application (requires static/dist to be populated)
 run: build
 	./$(BUILD_DIR)/$(APP_NAME)
 
@@ -38,6 +48,7 @@ test-coverage:
 # Clean build artifacts
 clean:
 	rm -rf $(BUILD_DIR)/
+	rm -rf static/dist
 	rm -f coverage.out coverage.html
 
 # Run in development mode with hot reload (requires air)
@@ -80,7 +91,9 @@ docker-run:
 # Show help
 help:
 	@echo "Available targets:"
-	@echo "  build         - Build the application"
+	@echo "  build-ui      - Build React frontend into static/dist/"
+	@echo "  build         - Build the Go binary (embeds static/dist/)"
+	@echo "  build-all     - Build frontend then backend (full release build)"
 	@echo "  run           - Build and run the application"
 	@echo "  run-dev       - Run without building (go run)"
 	@echo "  setup         - Run setup script"

@@ -88,9 +88,12 @@ type GetGroupsRequest struct {
 	Filter string `json:"filter,omitempty"`
 }
 
-// SearchRequest represents a general LDAP search request
+// SearchRequest represents a general LDAP search request.
+// Provide either Query (safe plain-text search across common attributes)
+// or Filter (raw LDAP filter string, for advanced use). Query takes precedence.
 type SearchRequest struct {
 	BaseDN     string   `json:"baseDN,omitempty"`
+	Query      string   `json:"query,omitempty"`
 	Filter     string   `json:"filter,omitempty"`
 	Attributes []string `json:"attributes,omitempty"`
 	SizeLimit  int      `json:"sizeLimit,omitempty"`

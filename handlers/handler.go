@@ -245,10 +245,16 @@ func (h *Handler) GetAllGroups(w http.ResponseWriter, r *http.Request) {
 		baseDN = h.config.AD.GetSearchBaseDN()
 	}
 
-	// Get optional filter from query params
-	filter := r.URL.Query().Get("filter")
-	if filter == "" {
-		filter = h.config.AD.GroupFilter
+	// query builds a safe escaped filter; falls back to filter param, then config default.
+	filter := h.config.AD.GroupFilter
+	if q := r.URL.Query().Get("query"); q != "" {
+		escaped := ldap.EscapeFilter(q)
+		filter = fmt.Sprintf(
+			"(&%s(|(cn=*%s*)(sAMAccountName=*%s*)))",
+			h.config.AD.GroupFilter, escaped, escaped,
+		)
+	} else if f := r.URL.Query().Get("filter"); f != "" {
+		filter = f
 	}
 
 	// Search for groups
@@ -547,12 +553,13 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get parameters from query string (GET) or request body (POST)
-	var baseDN, filter string
+	var baseDN, query, filter string
 	var attributes []string
 	var sizeLimit int
 
 	if r.Method == http.MethodGet {
 		baseDN = r.URL.Query().Get("baseDN")
+		query = r.URL.Query().Get("query")
 		filter = r.URL.Query().Get("filter")
 		if attrs := r.URL.Query().Get("attributes"); attrs != "" {
 			attributes = strings.Split(attrs, ",")
@@ -570,6 +577,7 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		baseDN = req.BaseDN
+		query = req.Query
 		filter = req.Filter
 		attributes = req.Attributes
 		sizeLimit = req.SizeLimit
@@ -579,7 +587,14 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 	if baseDN == "" {
 		baseDN = h.config.AD.GetSearchBaseDN()
 	}
-	if filter == "" {
+	// query takes precedence over filter: build a safe, escaped filter server-side.
+	if query != "" {
+		escaped := ldap.EscapeFilter(query)
+		filter = fmt.Sprintf(
+			"(&%s(|(sAMAccountName=*%s*)(displayName=*%s*)(mail=*%s*)(cn=*%s*)))",
+			h.config.AD.UserFilter, escaped, escaped, escaped, escaped,
+		)
+	} else if filter == "" {
 		filter = h.config.AD.SearchFilter
 	}
 	if len(attributes) == 0 {
