@@ -1,0 +1,11 @@
+apiVersion: v2
+name: adel
+description: Active Directory Engagement Layer - REST API + UI for Active Directory over LDAP/LDAPS
+type: application
+version: 0.1.0
+appVersion: "latest"
+home: https://github.com/dmakeienko/adel-backend
+sources:
+  - https://github.com/dmakeienko/adel-backend
+maintainers:
+  - name: dmakeienko

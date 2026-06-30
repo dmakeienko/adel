@@ -1,0 +1,128 @@
+replicaCount: 1
+
+image:
+  repository: dmakeienko/adel
+  pullPolicy: IfNotPresent
+  # Defaults to .Chart.AppVersion if not set
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  fsGroup: 1001
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: adel.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  # - secretName: adel-tls
+  #   hosts:
+  #     - adel.example.com
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Application config (env vars), see .env.example in the repo for the full reference.
+config:
+  port: "8080"
+  environment: "production"
+  readTimeout: "60"
+  writeTimeout: "60"
+  idleTimeout: "60"
+
+  ad:
+    server: ""
+    port: "389"
+    baseDN: ""
+    useSSL: false
+    skipTLS: false
+    userFilter: "(objectClass=user)"
+    groupFilter: "(objectClass=group)"
+    searchFilter: "(objectClass=*)"
+    searchBaseDN: ""
+    excludedObjects: ""
+    excludedGroups: ""
+    # Name of a Secret key holding the CA cert PEM, mounted at /certs/ca/ca.crt when set.
+    caCertSecretName: ""
+    caCertSecretKey: "ca.crt"
+
+  cors:
+    allowedOrigins: "*"
+    allowedMethods: "GET,POST,PUT,DELETE,OPTIONS,PATCH"
+    allowedHeaders: "Accept,Authorization,Content-Type,X-Session-ID"
+    allowCredentials: true
+    maxAge: "86400"
+
+  logging:
+    level: "info"
+    format: "json"
+
+# TLS for the Go server itself (server.crt/server.key). Typically disabled in
+# favor of TLS termination at the Ingress; enable only if the server must
+# terminate TLS itself.
+tls:
+  enabled: false
+  # Name of a Secret of type kubernetes.io/tls (or generic with tls.crt/tls.key)
+  secretName: ""
+
+# Extra environment variables appended as-is (e.g. for secrets via valueFrom).
+extraEnv: []
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 15
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10

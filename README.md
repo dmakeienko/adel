@@ -307,6 +307,59 @@ make docker-build
 make docker-run
 ```
 
+## Kubernetes (Helm)
+
+A Helm chart is provided in [`charts/adel`](charts/adel) to deploy the container to Kubernetes. It is also published as a Helm repo on every release.
+
+### Install from the Helm repo
+
+```bash
+helm repo add adel https://dmakeienko.github.io/adel/
+helm repo update
+
+# Install (AD_SERVER and AD_BASE_DN are required)
+helm install adel adel/adel \
+  --set config.ad.server=dc1.example.com \
+  --set config.ad.baseDN="dc=example,dc=com"
+
+# Or with a values file
+helm install adel adel/adel -f my-values.yaml --namespace adel --create-namespace
+
+# Upgrade to the latest chart version
+helm repo update
+helm upgrade adel adel/adel --namespace adel
+```
+
+### Install from source
+
+```bash
+# Lint and render
+make helm-lint
+make helm-template
+
+# Install (AD_SERVER and AD_BASE_DN are required)
+helm install adel charts/adel \
+  --set config.ad.server=dc1.example.com \
+  --set config.ad.baseDN="dc=example,dc=com"
+
+# Or with a values file
+helm install adel charts/adel -f my-values.yaml --namespace adel --create-namespace
+```
+
+Key values (see [`charts/adel/values.yaml`](charts/adel/values.yaml) for the full list):
+
+| Value | Description | Default |
+|-------|-------------|---------|
+| `image.repository` | Container image | `dmakeienko/adel` |
+| `image.tag` | Image tag | `.Chart.AppVersion` |
+| `config.ad.server` / `config.ad.baseDN` | Required AD connection settings | `""` |
+| `tls.enabled` / `tls.secretName` | Terminate TLS in the Go server using a `kubernetes.io/tls` Secret | `false` |
+| `config.ad.caCertSecretName` | Secret containing a CA cert for LDAPS, mounted at `/certs/ca` | `""` |
+| `ingress.enabled` | Expose via Ingress | `false` |
+| `autoscaling.enabled` | Enable HPA | `false` |
+
+In most setups, leave `tls.enabled=false` and terminate TLS at the Ingress instead.
+
 ## Security Notes
 
 1. **TLS Certificates**: In production, use certificates from a trusted CA

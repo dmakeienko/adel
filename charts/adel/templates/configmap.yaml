@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "adel.fullname" . }}
+  labels:
+    {{- include "adel.labels" . | nindent 4 }}
+data:
+  PORT: {{ .Values.config.port | quote }}
+  ENVIRONMENT: {{ .Values.config.environment | quote }}
+  READ_TIMEOUT: {{ .Values.config.readTimeout | quote }}
+  WRITE_TIMEOUT: {{ .Values.config.writeTimeout | quote }}
+  IDLE_TIMEOUT: {{ .Values.config.idleTimeout | quote }}
+
+  AD_SERVER: {{ .Values.config.ad.server | quote }}
+  AD_PORT: {{ .Values.config.ad.port | quote }}
+  AD_BASE_DN: {{ .Values.config.ad.baseDN | quote }}
+  AD_USE_SSL: {{ .Values.config.ad.useSSL | quote }}
+  AD_SKIP_TLS: {{ .Values.config.ad.skipTLS | quote }}
+  AD_USER_FILTER: {{ .Values.config.ad.userFilter | quote }}
+  AD_GROUP_FILTER: {{ .Values.config.ad.groupFilter | quote }}
+  AD_SEARCH_FILTER: {{ .Values.config.ad.searchFilter | quote }}
+  AD_SEARCH_BASE_DN: {{ .Values.config.ad.searchBaseDN | quote }}
+  AD_EXCLUDED_OBJECTS: {{ .Values.config.ad.excludedObjects | quote }}
+  AD_EXCLUDED_GROUPS: {{ .Values.config.ad.excludedGroups | quote }}
+  {{- if .Values.config.ad.caCertSecretName }}
+  AD_CA_CERT_PATH: "/certs/ca/{{ .Values.config.ad.caCertSecretKey }}"
+  {{- end }}
+
+  CORS_ALLOWED_ORIGINS: {{ .Values.config.cors.allowedOrigins | quote }}
+  CORS_ALLOWED_METHODS: {{ .Values.config.cors.allowedMethods | quote }}
+  CORS_ALLOWED_HEADERS: {{ .Values.config.cors.allowedHeaders | quote }}
+  CORS_ALLOW_CREDENTIALS: {{ .Values.config.cors.allowCredentials | quote }}
+  CORS_MAX_AGE: {{ .Values.config.cors.maxAge | quote }}
+
+  LOG_LEVEL: {{ .Values.config.logging.level | quote }}
+  LOG_FORMAT: {{ .Values.config.logging.format | quote }}
+
+  TLS_ENABLED: {{ .Values.tls.enabled | quote }}
+  {{- if .Values.tls.enabled }}
+  TLS_CERT_FILE: "/certs/tls/tls.crt"
+  TLS_KEY_FILE: "/certs/tls/tls.key"
+  {{- end }}

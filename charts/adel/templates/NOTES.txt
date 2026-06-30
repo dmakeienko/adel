@@ -1,0 +1,13 @@
+Adel has been deployed.
+
+{{- if .Values.ingress.enabled }}
+{{- range .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}{{ (index .paths 0).path }}
+{{- end }}
+{{- else }}
+  Service exposed internally as {{ include "adel.fullname" . }} on port {{ .Values.service.port }}.
+  Run:
+    kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "adel.fullname" . }} 8080:{{ .Values.service.port }}
+{{- end }}
+
+Set config.ad.server and config.ad.baseDN in values.yaml (or via --set) — these are required for the app to start.

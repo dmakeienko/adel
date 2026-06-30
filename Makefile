@@ -1,4 +1,4 @@
-.PHONY: build build-ui run test clean dev docker-build docker-run setup certs
+.PHONY: build build-ui run test clean dev docker-build docker-run setup certs helm-lint helm-template helm-install helm-upgrade helm-uninstall
 
 # Application name
 APP_NAME=adel
@@ -88,6 +88,26 @@ docker-build:
 docker-run:
 	docker run -p 8080:8080 --env-file .env $(APP_NAME):latest
 
+# Lint the Helm chart
+helm-lint:
+	helm lint --strict charts/adel
+
+# Render the Helm chart templates (override with VALUES=path/to/values.yaml)
+helm-template:
+	helm template $(APP_NAME) charts/adel $(if $(VALUES),-f $(VALUES))
+
+# Install the Helm chart (override with VALUES=path/to/values.yaml NAMESPACE=ns)
+helm-install:
+	helm install $(APP_NAME) charts/adel $(if $(VALUES),-f $(VALUES)) $(if $(NAMESPACE),-n $(NAMESPACE) --create-namespace)
+
+# Upgrade (or install) the Helm release
+helm-upgrade:
+	helm upgrade --install $(APP_NAME) charts/adel $(if $(VALUES),-f $(VALUES)) $(if $(NAMESPACE),-n $(NAMESPACE) --create-namespace)
+
+# Uninstall the Helm release
+helm-uninstall:
+	helm uninstall $(APP_NAME) $(if $(NAMESPACE),-n $(NAMESPACE))
+
 # Show help
 help:
 	@echo "Available targets:"
@@ -110,3 +130,8 @@ help:
 	@echo "  update        - Update dependencies"
 	@echo "  docker-build  - Build Docker image"
 	@echo "  docker-run    - Run Docker container"
+	@echo "  helm-lint     - Lint the Helm chart"
+	@echo "  helm-template - Render Helm chart templates (VALUES=path optional)"
+	@echo "  helm-install  - Install the Helm chart (VALUES=path NAMESPACE=ns optional)"
+	@echo "  helm-upgrade  - Upgrade or install the Helm release"
+	@echo "  helm-uninstall- Uninstall the Helm release"
