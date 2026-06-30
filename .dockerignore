@@ -1,0 +1,51 @@
+# Version control
+.git/
+.github/
+.gitignore
+
+# Documentation
+*.md
+LICENSE
+
+# Local env / secrets
+.env
+.env.example
+certs/
+
+# Editor/IDE
+.vscode/
+.idea/
+
+# Claude / tooling
+.claude/
+
+# Go build artifacts
+bin/
+*.test
+*.out
+coverage.*
+*.coverprofile
+profile.cov
+go.work
+go.work.sum
+
+# Frontend build artifacts and deps (regenerated in the ui-builder stage)
+web/node_modules/
+web/dist/
+
+# Pre-existing placeholder; the real build is copied in during the Docker build
+static/dist/
+
+# Misc project files not needed in the image
+.golangci.yml
+.goreleaser.yml
+.release-please-manifest.json
+release-please-config.json
+sonar-project.properties
+CHANGELOG.md
+charts/
+scripts/
+main_test.go
+
+# OS files
+.DS_Store
