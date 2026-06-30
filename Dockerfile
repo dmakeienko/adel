@@ -11,8 +11,9 @@ COPY web/ ./
 RUN npm run build
 
 # Stage 2 — build the Go binary with embedded assets
-FROM golang:1.25-alpine3.23 AS go-builder
-
+FROM golang:1.26-alpine AS go-builder
+ARG TARGETOS
+ARG TARGETARCH
 WORKDIR /app
 
 RUN apk add --no-cache git
@@ -25,24 +26,14 @@ COPY . .
 # Replace the placeholder static/dist with the real frontend build
 COPY --from=ui-builder /app/web/dist ./static/dist
 
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main .
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -o main .
 
 # Stage 3 — minimal runtime image
-FROM alpine:3.23
-
-RUN apk --no-cache add ca-certificates
-
-RUN addgroup -g 1001 -S adel && \
-    adduser -S adel -u 1001
-
-WORKDIR /home/adel
-
+FROM gcr.io/distroless/static:nonroot
+WORKDIR /
 COPY --from=go-builder /app/main .
-
-RUN chown adel:adel main
-
-USER adel
-
 EXPOSE 8080
+
+USER 65532:65532
 
 CMD ["./main"]
