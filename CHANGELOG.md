@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.3.6](https://github.com/dmakeienko/adel/compare/v1.3.5...v1.3.6) (2026-07-01)
+
+
+### Bug Fixes
+
+* linter findings ([5db5c0a](https://github.com/dmakeienko/adel/commit/5db5c0ada626898598d544192d89bdda23ddb635))
+* **lint:** migrate deprecated ldap.URL ([1fd4662](https://github.com/dmakeienko/adel/commit/1fd4662aa6ca322f1ee84d44cc2ccb7133c87d5a))
+* **lint:** reflect.Ptr should be inlined ([e2a9ce0](https://github.com/dmakeienko/adel/commit/e2a9ce03383a454805fc0f99cee658231bb3af18))
+
+
+### CI/CD
+
+* **helm:** fix Chart.yaml links ([8a3c5d6](https://github.com/dmakeienko/adel/commit/8a3c5d60d3c530c4412b93a2a3f89dfaba67a409))
+* prevent release-please trigger when bumping helm version ([0b5970a](https://github.com/dmakeienko/adel/commit/0b5970a48a457c8c41b381006dd84a6d1180c488))
+* upgrade path-filter action ([a9cbdd7](https://github.com/dmakeienko/adel/commit/a9cbdd733f3a6fa55a5d37ad2175ba1c007bcd2f))
+
+
+### Chores
+
+* bump helm chart to 1.3.5 ([4894b85](https://github.com/dmakeienko/adel/commit/4894b85a34bbe7fd078c4e831c417367b32d1c3f))
+
+
+### Code Refactoring
+
+* ignore attributes that has few occurence ([8fb9018](https://github.com/dmakeienko/adel/commit/8fb90187694693825620e45c312bdad9ade11760))
+
 ## [1.3.5](https://github.com/dmakeienko/adel/compare/v1.3.4...v1.3.5) (2026-07-01)
 
 
