@@ -21,32 +21,5 @@ archives:
       - tar.gz
     name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
 
-dockers:
-  - image_templates:
-      - "{{ .Env.DOCKERHUB_USERNAME }}/adel:{{ .Version }}-amd64"
-    use: buildx
-    build_flag_templates:
-      - "--platform=linux/amd64"
-      - "--label=org.opencontainers.image.version={{ .Version }}"
-      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
-  - image_templates:
-      - "{{ .Env.DOCKERHUB_USERNAME }}/adel:{{ .Version }}-arm64"
-    use: buildx
-    goarch: arm64
-    build_flag_templates:
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.version={{ .Version }}"
-      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
-
-docker_manifests:
-  - name_template: "{{ .Env.DOCKERHUB_USERNAME }}/adel:{{ .Version }}"
-    image_templates:
-      - "{{ .Env.DOCKERHUB_USERNAME }}/adel:{{ .Version }}-amd64"
-      - "{{ .Env.DOCKERHUB_USERNAME }}/adel:{{ .Version }}-arm64"
-  - name_template: "{{ .Env.DOCKERHUB_USERNAME }}/adel:latest"
-    image_templates:
-      - "{{ .Env.DOCKERHUB_USERNAME }}/adel:{{ .Version }}-amd64"
-      - "{{ .Env.DOCKERHUB_USERNAME }}/adel:{{ .Version }}-arm64"
-
 changelog:
   use: github-native
