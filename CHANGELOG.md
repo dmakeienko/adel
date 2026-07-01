@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.3](https://github.com/dmakeienko/adel/compare/v1.3.2...v1.3.3) (2026-07-01)
+
+
+### Bug Fixes
+
+* maintanance release - decouple docker from goreleaser ([2d3d165](https://github.com/dmakeienko/adel/commit/2d3d165fc7e57ae79ab18804192f4bb9b92d1e73))
+
 ## [1.3.2](https://github.com/dmakeienko/adel/compare/v1.3.1...v1.3.2) (2026-07-01)
 
 
