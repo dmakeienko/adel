@@ -78,7 +78,7 @@ func TestSplitDN(t *testing.T) {
 		{
 			"standard DN",
 			"CN=John Doe,OU=Users,DC=example,DC=com",
-			[]string{"CN=John Doe", "OU=Users", "DC=example", "DC=com"},
+			[]string{"CN=John Doe", "OU=Users", "DC=example", "DC=com"}, //nolint:goconst // test fixture data
 		},
 		{
 			"escaped comma",

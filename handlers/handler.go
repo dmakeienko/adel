@@ -20,6 +20,12 @@ import (
 	"github.com/gorilla/mux"
 )
 
+const (
+	errMsgSessionNotFound    = "Session not found"
+	errMsgInvalidRequestBody = "Invalid request body"
+	logKeyUserDN             = "userDN"
+)
+
 // Handler holds dependencies for HTTP handlers
 type Handler struct {
 	config     *config.Config
@@ -52,7 +58,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, models.LoginResponse{
 			Success: false,
-			Message: "Invalid request body",
+			Message: errMsgInvalidRequestBody,
 		})
 		return
 	}
@@ -126,7 +132,7 @@ func (h *Handler) GetUser(w http.ResponseWriter, r *http.Request) {
 	if sess == nil {
 		writeJSON(w, http.StatusUnauthorized, models.UserResponse{
 			Success: false,
-			Error:   "Session not found",
+			Error:   errMsgSessionNotFound,
 		})
 		return
 	}
@@ -163,7 +169,7 @@ func (h *Handler) EditUser(w http.ResponseWriter, r *http.Request) {
 	if sess == nil {
 		writeJSON(w, http.StatusUnauthorized, models.APIResponse{
 			Success: false,
-			Error:   "Session not found",
+			Error:   errMsgSessionNotFound,
 		})
 		return
 	}
@@ -172,7 +178,7 @@ func (h *Handler) EditUser(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, models.APIResponse{
 			Success: false,
-			Error:   "Invalid request body",
+			Error:   errMsgInvalidRequestBody,
 		})
 		return
 	}
@@ -234,7 +240,7 @@ func (h *Handler) GetAllGroups(w http.ResponseWriter, r *http.Request) {
 	if sess == nil {
 		writeJSON(w, http.StatusUnauthorized, models.GroupsResponse{
 			Success: false,
-			Error:   "Session not found",
+			Error:   errMsgSessionNotFound,
 		})
 		return
 	}
@@ -264,7 +270,7 @@ func (h *Handler) GetAllGroups(w http.ResponseWriter, r *http.Request) {
 		ldap.NeverDerefAliases,
 		0, 0, false,
 		filter,
-		[]string{"dn", "cn", "sAMAccountName", "description", "groupType", "member", "memberOf", "distinguishedName"},
+		[]string{"dn", "cn", "sAMAccountName", "description", "groupType", "member", "memberOf", "distinguishedName"}, //nolint:goconst // LDAP schema attribute names, not app-level constants
 		nil,
 	)
 
@@ -309,7 +315,7 @@ func (h *Handler) AddUserToGroup(w http.ResponseWriter, r *http.Request) {
 	if sess == nil {
 		writeJSON(w, http.StatusUnauthorized, models.APIResponse{
 			Success: false,
-			Error:   "Session not found",
+			Error:   errMsgSessionNotFound,
 		})
 		return
 	}
@@ -318,7 +324,7 @@ func (h *Handler) AddUserToGroup(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, models.APIResponse{
 			Success: false,
-			Error:   "Invalid request body",
+			Error:   errMsgInvalidRequestBody,
 		})
 		return
 	}
@@ -365,10 +371,10 @@ func (h *Handler) AddUserToGroup(w http.ResponseWriter, r *http.Request) {
 	if err := sess.Conn.Modify(modifyReq); err != nil {
 		// Log detailed LDAP error information
 		logLDAPError("AddUserToGroup", err, map[string]string{
-			"username": req.Username,
-			"userDN":   userDN,
-			"group":    req.GroupName,
-			"groupDN":  groupDN,
+			"username":   req.Username,
+			logKeyUserDN: userDN,
+			"group":      req.GroupName,
+			"groupDN":    groupDN,
 		})
 
 		// Check if user is already a member
@@ -415,7 +421,7 @@ func (h *Handler) RemoveUserFromGroup(w http.ResponseWriter, r *http.Request) {
 	if sess == nil {
 		writeJSON(w, http.StatusUnauthorized, models.APIResponse{
 			Success: false,
-			Error:   "Session not found",
+			Error:   errMsgSessionNotFound,
 		})
 		return
 	}
@@ -424,7 +430,7 @@ func (h *Handler) RemoveUserFromGroup(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, models.APIResponse{
 			Success: false,
-			Error:   "Invalid request body",
+			Error:   errMsgInvalidRequestBody,
 		})
 		return
 	}
@@ -471,10 +477,10 @@ func (h *Handler) RemoveUserFromGroup(w http.ResponseWriter, r *http.Request) {
 	if err := sess.Conn.Modify(modifyReq); err != nil {
 		// Log detailed LDAP error information
 		logLDAPError("RemoveUserFromGroup", err, map[string]string{
-			"username": req.Username,
-			"userDN":   userDN,
-			"group":    req.GroupName,
-			"groupDN":  groupDN,
+			"username":   req.Username,
+			logKeyUserDN: userDN,
+			"group":      req.GroupName,
+			"groupDN":    groupDN,
 		})
 
 		// Check if user is not a member
@@ -521,7 +527,7 @@ func (h *Handler) GetCurrentUser(w http.ResponseWriter, r *http.Request) {
 	if sess == nil {
 		writeJSON(w, http.StatusUnauthorized, models.UserResponse{
 			Success: false,
-			Error:   "Session not found",
+			Error:   errMsgSessionNotFound,
 		})
 		return
 	}
@@ -547,7 +553,7 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 	if sess == nil {
 		writeJSON(w, http.StatusUnauthorized, models.SearchResponse{
 			Success: false,
-			Error:   "Session not found",
+			Error:   errMsgSessionNotFound,
 		})
 		return
 	}
@@ -572,7 +578,7 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, models.SearchResponse{
 				Success: false,
-				Error:   "Invalid request body",
+				Error:   errMsgInvalidRequestBody,
 			})
 			return
 		}
@@ -981,7 +987,7 @@ func (h *Handler) ChangeUserPassword(w http.ResponseWriter, r *http.Request) {
 	if sess == nil {
 		writeJSON(w, http.StatusUnauthorized, models.APIResponse{
 			Success: false,
-			Error:   "Session not found",
+			Error:   errMsgSessionNotFound,
 		})
 		return
 	}
@@ -990,7 +996,7 @@ func (h *Handler) ChangeUserPassword(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, models.APIResponse{
 			Success: false,
-			Error:   "Invalid request body",
+			Error:   errMsgInvalidRequestBody,
 		})
 		return
 	}
@@ -1045,7 +1051,7 @@ func (h *Handler) ChangeUserPassword(w http.ResponseWriter, r *http.Request) {
 
 	if err := sess.Conn.Modify(modifyReq); err != nil {
 		logLDAPError("ChangeUserPassword", err, map[string]string{
-			"userDN": userDN,
+			logKeyUserDN: userDN,
 		})
 
 		if strings.Contains(err.Error(), "Insufficient Access") ||
@@ -1082,7 +1088,7 @@ func (h *Handler) ChangeUserPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slog.Info("Password changed successfully", "userDN", userDN) //nolint:gosec // G706: structured logging with key-value pairs, not string interpolation
+	slog.Info("Password changed successfully", logKeyUserDN, userDN) //nolint:gosec // G706: structured logging with key-value pairs, not string interpolation
 
 	writeJSON(w, http.StatusOK, models.APIResponse{
 		Success: true,
