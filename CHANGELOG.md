@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.3.5](https://github.com/dmakeienko/adel/compare/v1.3.4...v1.3.5) (2026-07-01)
+
+
+### Bug Fixes
+
+* moved api.Use(middleware.JSON) onto the /api/v1 subrouter only ([5165209](https://github.com/dmakeienko/adel/commit/51652093f2779e1592d7d042990b8dd7aaa49d11))
+
+
+### Chores
+
+* bump helm chart to 1.3.4 ([d38b21b](https://github.com/dmakeienko/adel/commit/d38b21b444f84c17e1613866e80401807748f75d))
+
 ## [1.3.4](https://github.com/dmakeienko/adel/compare/v1.3.3...v1.3.4) (2026-07-01)
 
 
