@@ -144,6 +144,37 @@ jobs:
       - name: Run govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.4.0 ./...
 
+  helm-lint:
+    permissions:
+      contents: read
+    name: Helm lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Check for chart changes
+        id: changes
+        uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+        with:
+          filters: |
+            charts:
+              - 'charts/**'
+
+      - name: Set up Helm
+        if: steps.changes.outputs.charts == 'true'
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+
+      - name: Helm lint
+        if: steps.changes.outputs.charts == 'true'
+        run: helm lint charts/adel
+
+      - name: Helm template
+        if: steps.changes.outputs.charts == 'true'
+        run: helm template adel charts/adel
+
   codeql:
     permissions:
       actions: read

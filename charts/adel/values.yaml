@@ -1,7 +1,7 @@
 replicaCount: 1
 
 image:
-  repository: dmakeienko/adel
+  repository: dmakeienko12/adel
   pullPolicy: IfNotPresent
   # Defaults to .Chart.AppVersion if not set
   tag: ""
@@ -35,6 +35,8 @@ service:
   type: ClusterIP
   port: 8080
 
+# Choose one of ingress (networking.k8s.io) or httpRoute (Gateway API) for
+# exposing the service. Enabling both is not recommended.
 ingress:
   enabled: false
   className: ""
@@ -49,13 +51,28 @@ ingress:
   #   hosts:
   #     - adel.example.com
 
+httpRoute:
+  enabled: false
+  annotations: {}
+  parentRefs:
+    - name: my-gateway
+      # namespace: gateway-system
+      # sectionName: https
+  hostnames:
+    - adel.example.com
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+
 resources:
   limits:
-    cpu: 500m
-    memory: 256Mi
-  requests:
     cpu: 100m
     memory: 128Mi
+  requests:
+    cpu: 50m
+    memory: 64Mi
 
 autoscaling:
   enabled: false
