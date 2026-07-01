@@ -134,7 +134,7 @@ func TestWriteJSON(t *testing.T) {
 func TestHealthHandler(t *testing.T) {
 	cfg := &config.Config{
 		Server: config.ServerConfig{Environment: "test"},
-		AD:     config.ADConfig{Server: "test-ad", Port: 389},
+		AD:     config.ADConfig{Server: "test-ad", Port: 389}, //nolint:goconst // test fixture data
 	}
 	h := NewHandler(cfg, nil)
 
@@ -173,7 +173,7 @@ func TestGetUserAttributes(t *testing.T) {
 	}
 
 	// Check some expected attributes are present
-	expected := []string{"sAMAccountName", "mail", "displayName", "memberOf", "userAccountControl"}
+	expected := []string{"sAMAccountName", "mail", "displayName", "memberOf", "userAccountControl"} //nolint:goconst // test fixture data
 	for _, attr := range expected {
 		found := false
 		for _, a := range attrs {
@@ -190,7 +190,7 @@ func TestGetUserAttributes(t *testing.T) {
 
 func TestLoginHandlerValidation(t *testing.T) {
 	cfg := &config.Config{
-		AD: config.ADConfig{Server: "test-ad", Port: 389, BaseDN: "dc=test,dc=com"},
+		AD: config.ADConfig{Server: "test-ad", Port: 389, BaseDN: "dc=test,dc=com"}, //nolint:goconst // test fixture data
 	}
 	h := NewHandler(cfg, nil)
 

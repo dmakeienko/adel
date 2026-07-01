@@ -120,7 +120,7 @@ func TestSplitString(t *testing.T) {
 		want      []string
 	}{
 		{"empty string", "", ",", []string{}},
-		{"single element", "hello", ",", []string{"hello"}},
+		{"single element", "hello", ",", []string{"hello"}}, //nolint:goconst // test fixture data
 		{"multiple elements", "a,b,c", ",", []string{"a", "b", "c"}},
 		{"multi-char delimiter", "a::b::c", "::", []string{"a", "b", "c"}},
 	}
@@ -166,7 +166,7 @@ func TestTrimSpace(t *testing.T) {
 func TestValidate(t *testing.T) {
 	t.Run("valid config", func(t *testing.T) {
 		cfg := &Config{
-			AD: ADConfig{Server: "ad.example.com", BaseDN: "dc=example,dc=com"},
+			AD: ADConfig{Server: "ad.example.com", BaseDN: "dc=example,dc=com"}, //nolint:goconst // test fixture data
 		}
 		if err := cfg.Validate(); err != nil {
 			t.Errorf("Validate() error = %v, want nil", err)
