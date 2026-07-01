@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.3.1](https://github.com/dmakeienko/adel/compare/v1.3.0...v1.3.1) (2026-07-01)
+
+
+### Bug Fixes
+
+* maintenance fix to resolve release issue ([9987ca5](https://github.com/dmakeienko/adel/commit/9987ca52e020de5a805fd3bb5a2808751dfa6327))
+
+
+### Chores
+
+* bump helm chart to 1.3.0 ([7a408d4](https://github.com/dmakeienko/adel/commit/7a408d4c034a63695b149f963d9ede1a9b96e3bf))
+
 ## [1.3.0](https://github.com/dmakeienko/adel/compare/v1.2.2...v1.3.0) (2026-07-01)
 
 
