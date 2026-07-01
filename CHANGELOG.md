@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.3.2](https://github.com/dmakeienko/adel/compare/v1.3.1...v1.3.2) (2026-07-01)
+
+
+### Bug Fixes
+
+* maintenance fix to resolve release issue and add dependency on helm publish ([728c16c](https://github.com/dmakeienko/adel/commit/728c16cfa6712b08127c0483af759c0090bc18b7))
+
+
+### Chores
+
+* bump helm chart to 1.3.1 ([a85b73a](https://github.com/dmakeienko/adel/commit/a85b73ab58b39a2d48fead6f85155e93aaa1a1c5))
+
 ## [1.3.1](https://github.com/dmakeienko/adel/compare/v1.3.0...v1.3.1) (2026-07-01)
 
 
