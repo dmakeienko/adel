@@ -212,10 +212,10 @@ func (m *Manager) createLDAPConnection() (*ldap.Conn, error) {
 			tlsConfig.RootCAs = caCertPool
 		}
 
-		conn, err = ldap.DialTLS("tcp", address, tlsConfig)
+		conn, err = ldap.DialURL(fmt.Sprintf("ldaps://%s", address), ldap.DialWithTLSConfig(tlsConfig))
 	} else {
 		// Plain LDAP connection
-		conn, err = ldap.Dial("tcp", address)
+		conn, err = ldap.DialURL(fmt.Sprintf("ldap://%s", address))
 
 		// Optionally upgrade to TLS via StartTLS
 		if err == nil && !m.cfg.AD.SkipTLS {
