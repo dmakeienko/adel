@@ -146,7 +146,6 @@ func setupRouter(handler *handlers.Handler, sessionMgr *session.Manager, cfg *co
 		AllowCredentials: cfg.CORS.AllowCredentials,
 		MaxAge:           cfg.CORS.MaxAge,
 	}))
-	router.Use(middleware.JSON)
 
 	// Handle OPTIONS requests globally (for CORS preflight)
 	router.Methods(http.MethodOptions).HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -158,6 +157,7 @@ func setupRouter(handler *handlers.Handler, sessionMgr *session.Manager, cfg *co
 
 	// API v1 routes
 	api := router.PathPrefix("/api/v1").Subrouter()
+	api.Use(middleware.JSON)
 
 	// Public routes (no session required)
 	api.HandleFunc("/login", handler.Login).Methods(http.MethodPost)
