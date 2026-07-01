@@ -118,7 +118,7 @@ jobs:
           sed -i "s/^version: .*/version: ${VERSION}/" charts/adel/Chart.yaml
           sed -i "s/^appVersion: .*/appVersion: \"${VERSION}\"/" charts/adel/Chart.yaml
           git add charts/adel/Chart.yaml
-          git commit -m "chore: bump helm chart to ${VERSION}"
+          git commit -m "Bump helm chart to ${VERSION}"
           git push origin HEAD:main
         env:
           TAG_NAME: ${{ needs.release_please.outputs.tag_name }}
