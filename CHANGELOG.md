@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.4](https://github.com/dmakeienko/adel/compare/v1.3.3...v1.3.4) (2026-07-01)
+
+
+### Bug Fixes
+
+* maintanance release - fix goreleaser to build ui assets ([a5e4b0e](https://github.com/dmakeienko/adel/commit/a5e4b0ef83403a9a70fb70458cc7e58ae24d373e))
+
 ## [1.3.3](https://github.com/dmakeienko/adel/compare/v1.3.2...v1.3.3) (2026-07-01)
 
 
