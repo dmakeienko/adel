@@ -4,8 +4,8 @@ description: Active Directory Engagement Layer - REST API + UI for Active Direct
 type: application
 version: 1.3.5
 appVersion: "1.3.5"
-home: https://github.com/dmakeienko/adel-backend
+home: https://github.com/dmakeienko/adel
 sources:
-  - https://github.com/dmakeienko/adel-backend
+  - https://github.com/dmakeienko/adel
 maintainers:
   - name: dmakeienko
