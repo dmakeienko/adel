@@ -1032,7 +1032,7 @@ func (h *Handler) ChangeUserPassword(w http.ResponseWriter, r *http.Request) {
 		encoded := utf16.Encode([]rune(quoted))
 		result := make([]byte, len(encoded)*2)
 		for i, v := range encoded {
-			result[i*2] = byte(v)
+			result[i*2] = byte(v) // #nosec G115 -- intentional truncation to low byte for UTF-16LE encoding
 			result[i*2+1] = byte(v >> 8)
 		}
 		return result
