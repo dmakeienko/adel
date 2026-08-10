@@ -1,5 +1,60 @@
 # Changelog
 
+## [1.3.6](https://github.com/dmakeienko/adel/compare/v1.3.5...v1.3.6) (2026-08-10)
+
+
+### Bug Fixes
+
+* linter findings ([5db5c0a](https://github.com/dmakeienko/adel/commit/5db5c0ada626898598d544192d89bdda23ddb635))
+* **lint:** migrate deprecated ldap.URL ([1fd4662](https://github.com/dmakeienko/adel/commit/1fd4662aa6ca322f1ee84d44cc2ccb7133c87d5a))
+* **lint:** reflect.Ptr should be inlined ([e2a9ce0](https://github.com/dmakeienko/adel/commit/e2a9ce03383a454805fc0f99cee658231bb3af18))
+
+
+### CI/CD
+
+* **helm:** fix Chart.yaml links ([8a3c5d6](https://github.com/dmakeienko/adel/commit/8a3c5d60d3c530c4412b93a2a3f89dfaba67a409))
+* prevent release-please trigger when bumping helm version ([0b5970a](https://github.com/dmakeienko/adel/commit/0b5970a48a457c8c41b381006dd84a6d1180c488))
+* upgrade path-filter action ([a9cbdd7](https://github.com/dmakeienko/adel/commit/a9cbdd733f3a6fa55a5d37ad2175ba1c007bcd2f))
+
+
+### Chores
+
+* bump go to 1.26.5 ([8239116](https://github.com/dmakeienko/adel/commit/823911650ce79eb20864676f0e4ee92ff13c184f))
+* bump helm chart to 1.3.5 ([4894b85](https://github.com/dmakeienko/adel/commit/4894b85a34bbe7fd078c4e831c417367b32d1c3f))
+
+
+### Code Refactoring
+
+* ignore attributes that has few occurence ([8fb9018](https://github.com/dmakeienko/adel/commit/8fb90187694693825620e45c312bdad9ade11760))
+
+
+### Dependencies
+
+* **deps-dev:** bump brace-expansion ([3fc1a9a](https://github.com/dmakeienko/adel/commit/3fc1a9afaf79450e71b21d7945a56e67414e3ccd))
+* **deps-dev:** bump brace-expansion from 1.1.12 to 1.1.16 in /web in the npm_and_yarn group across 1 directory ([8488532](https://github.com/dmakeienko/adel/commit/8488532312871120db66fc38e9cad0f3132dff2e))
+* **deps-dev:** bump js-yaml ([7f3b85c](https://github.com/dmakeienko/adel/commit/7f3b85cd1fd92d945e059267409adaf645a56c1d))
+* **deps-dev:** bump js-yaml from 4.1.1 to 4.3.0 in /web in the npm_and_yarn group across 1 directory ([4e57963](https://github.com/dmakeienko/adel/commit/4e57963bfbffa512c137367e83222b58cee6edde))
+* **deps:** bump axios ([71c5ea9](https://github.com/dmakeienko/adel/commit/71c5ea9335e68423cfb9a6079cdde5e43b35d9e1))
+* **deps:** bump axios from 1.16.0 to 1.18.0 in /web in the npm_and_yarn group across 1 directory ([eb1d2aa](https://github.com/dmakeienko/adel/commit/eb1d2aa44f221f49632bcfef456c678453ac3da3))
+* **deps:** bump github.com/Azure/go-ntlmssp from 0.1.0 to 0.1.1 ([cfea56f](https://github.com/dmakeienko/adel/commit/cfea56f082a832f956435141148dafd7a167c5cb))
+* **deps:** bump github.com/Azure/go-ntlmssp from 0.1.0 to 0.1.1 ([7335022](https://github.com/dmakeienko/adel/commit/73350225fa93b51f8aee8492ca27952ac1c768d6))
+* **deps:** bump github.com/go-ldap/ldap/v3 ([fa8e665](https://github.com/dmakeienko/adel/commit/fa8e665092487cde335a7883245ef81b77b49531))
+* **deps:** bump github.com/go-ldap/ldap/v3 from 3.4.13 to 3.4.14 in the go-dependencies group ([c37a752](https://github.com/dmakeienko/adel/commit/c37a7528db23c4ef7afc08dc6e68a22e9fffc1e6))
+* **deps:** bump golang.org/x/crypto from 0.48.0 to 0.52.0 ([2a906bd](https://github.com/dmakeienko/adel/commit/2a906bdf9d1c686579475c5ccf033da09c926980))
+* **deps:** bump golang.org/x/crypto from 0.48.0 to 0.52.0 ([3ad1a36](https://github.com/dmakeienko/adel/commit/3ad1a3614ff77dbbe1c7ca9774c617dd0c9ba37d))
+* **deps:** bump the github-actions group with 3 updates ([ffb2283](https://github.com/dmakeienko/adel/commit/ffb2283fa87048fd57906e60ba883750d78e3fa3))
+* **deps:** bump the github-actions group with 3 updates ([6f5087a](https://github.com/dmakeienko/adel/commit/6f5087a071ef2255378f4ec23c96fa29772e9546))
+* **deps:** bump the github-actions group with 3 updates ([151422f](https://github.com/dmakeienko/adel/commit/151422f8e74e58c34786a17f2385c822fbe884ed))
+* **deps:** bump the github-actions group with 3 updates ([3c174ec](https://github.com/dmakeienko/adel/commit/3c174ec123f1732c866c3c3bb7f2d76a5136af46))
+* **deps:** bump the github-actions group with 4 updates ([5b04d26](https://github.com/dmakeienko/adel/commit/5b04d2614d4f5ca1bae87e27121c8c54b01a129e))
+* **deps:** bump the github-actions group with 4 updates ([f09735a](https://github.com/dmakeienko/adel/commit/f09735a0a9e2057d9db0579ad10382ce52359061))
+* **deps:** bump the github-actions group with 5 updates ([84cd867](https://github.com/dmakeienko/adel/commit/84cd867a6296b396fdee6a2bf7a7fb492feaaffb))
+* **deps:** bump the github-actions group with 5 updates ([d70500f](https://github.com/dmakeienko/adel/commit/d70500fb5e39fd47b398352e6cc5ca9b7478e286))
+* **deps:** bump the github-actions group with 7 updates ([995cbdf](https://github.com/dmakeienko/adel/commit/995cbdfb6d504452bbe7f82c20ac73c4faab7958))
+* **deps:** bump the github-actions group with 7 updates ([ed0e236](https://github.com/dmakeienko/adel/commit/ed0e23692cb53a4a677d65df8b52b785188b9e22))
+* **deps:** bump the npm_and_yarn group across 1 directory with 2 updates ([cfbe624](https://github.com/dmakeienko/adel/commit/cfbe6241b499cb7bc6bab79fe3560fe9a18e4f3d))
+* **deps:** bump the npm_and_yarn group across 1 directory with 2 updates ([2021bd6](https://github.com/dmakeienko/adel/commit/2021bd680c4d3aee5220b2961412d5ef166c95b1))
+
 ## [1.3.5](https://github.com/dmakeienko/adel/compare/v1.3.4...v1.3.5) (2026-07-01)
 
 
