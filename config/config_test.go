@@ -112,6 +112,21 @@ func TestGetSliceEnv(t *testing.T) {
 	})
 }
 
+func TestGetDNSliceEnv(t *testing.T) {
+	t.Setenv("TEST_DN_SLICE_ENV", "Helpdesk; CN=Directory Admins,OU=Groups,DC=example,DC=com ; ")
+
+	got := getDNSliceEnv("TEST_DN_SLICE_ENV", nil)
+	want := []string{"Helpdesk", "CN=Directory Admins,OU=Groups,DC=example,DC=com"}
+	if len(got) != len(want) {
+		t.Fatalf("getDNSliceEnv() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("getDNSliceEnv()[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
 func TestSplitString(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -224,8 +239,10 @@ func TestLoad(t *testing.T) {
 	// Set required env vars
 	os.Setenv("AD_SERVER", "test-ad.example.com")
 	os.Setenv("AD_BASE_DN", "dc=test,dc=com")
+	os.Setenv("AD_SEARCH_ALLOWED_GROUPS", "Helpdesk;Directory Admins")
 	defer os.Unsetenv("AD_SERVER")
 	defer os.Unsetenv("AD_BASE_DN")
+	defer os.Unsetenv("AD_SEARCH_ALLOWED_GROUPS")
 
 	cfg, err := Load()
 	if err != nil {
@@ -237,5 +254,67 @@ func TestLoad(t *testing.T) {
 	}
 	if cfg.Server.Port != "8080" {
 		t.Errorf("Server.Port = %q, want %q", cfg.Server.Port, "8080")
+	}
+	if len(cfg.AD.SearchAllowedGroups) != 2 || cfg.AD.SearchAllowedGroups[0] != "Helpdesk" || cfg.AD.SearchAllowedGroups[1] != "Directory Admins" {
+		t.Errorf("AD.SearchAllowedGroups = %v, want [Helpdesk Directory Admins]", cfg.AD.SearchAllowedGroups)
+	}
+}
+
+func TestIsSearchAllowedFor(t *testing.T) {
+	tests := []struct {
+		name          string
+		memberOf      []string
+		allowedGroups []string
+		want          bool
+	}{
+		{
+			name: "empty allow-list permits authenticated users",
+			want: true,
+		},
+		{
+			name:          "matches group CN case-insensitively",
+			memberOf:      []string{"CN=Helpdesk,OU=Groups,DC=example,DC=com"},
+			allowedGroups: []string{"helpdesk"},
+			want:          true,
+		},
+		{
+			name:          "matches full DN case-insensitively",
+			memberOf:      []string{"CN=Directory Admins,OU=Groups,DC=example,DC=com"},
+			allowedGroups: []string{"cn=directory admins,ou=groups,dc=example,dc=com"},
+			want:          true,
+		},
+		{
+			name:          "handles escaped group CN",
+			memberOf:      []string{`CN=Support\, Tier 2,OU=Groups,DC=example,DC=com`},
+			allowedGroups: []string{"Support, Tier 2"},
+			want:          true,
+		},
+		{
+			name:          "matches a group reached through nesting",
+			memberOf:      []string{"CN=Helpdesk-Tier1,OU=Groups,DC=example,DC=com", "CN=Helpdesk,OU=Groups,DC=example,DC=com"},
+			allowedGroups: []string{"Helpdesk"},
+			want:          true,
+		},
+		{
+			name:          "rejects users outside allowed groups",
+			memberOf:      []string{"CN=Employees,OU=Groups,DC=example,DC=com"},
+			allowedGroups: []string{"Helpdesk", "Directory Admins"},
+			want:          false,
+		},
+		{
+			name:          "rejects users with unknown memberships",
+			allowedGroups: []string{"Helpdesk"},
+			want:          false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &ADConfig{SearchAllowedGroups: tt.allowedGroups}
+			if got := c.IsSearchAllowedFor(tt.memberOf); got != tt.want {
+				t.Errorf("IsSearchAllowedFor(%v) with allowed %v = %v, want %v",
+					tt.memberOf, tt.allowedGroups, got, tt.want)
+			}
+		})
 	}
 }

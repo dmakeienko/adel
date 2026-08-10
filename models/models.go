@@ -155,6 +155,9 @@ type SessionInfo struct {
 	UserDN    string    `json:"userDN"`
 	CreatedAt time.Time `json:"createdAt"`
 	ExpiresAt time.Time `json:"expiresAt"`
+	// CanSearch reports whether this session may use the search endpoint. It lets the
+	// UI hide search controls; the server-side check remains the enforcement point.
+	CanSearch bool `json:"canSearch"`
 }
 
 // ChangeUserPasswordRequest represents a password change request

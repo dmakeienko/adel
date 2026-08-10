@@ -9,6 +9,7 @@ import {
 import type { User, Group, UserGroupStatus } from '../types';
 import api from '../services/api';
 import { useNotification } from '../contexts/NotificationContext';
+import { useAuth } from '../contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -38,6 +39,7 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [pendingChanges, setPendingChanges] = useState<Map<string, 'add' | 'remove'>>(new Map());
   const { showNotification } = useNotification();
+  const { canSearch } = useAuth();
   const searchRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -47,6 +49,14 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
   };
 
   const loadAllGroups = useCallback(async () => {
+    // Group listing is gated by the same allow-list as search; skip the call for
+    // users who would receive a 403. Their own groups still render from memberOf,
+    // just without the descriptions this lookup would have supplied.
+    if (!canSearch) {
+      setAllGroups([]);
+      return;
+    }
+
     try {
       const response = await api.getAllGroups();
       if (response.success && response.groups) {
@@ -55,7 +65,7 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
     } catch {
       console.error('Failed to load groups');
     }
-  }, []);
+  }, [canSearch]);
 
   const loadUserGroups = useCallback(() => {
     if (!user.memberOf) {
@@ -99,15 +109,15 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
   }, []);
 
   useEffect(() => {
-    if (allGroups.length > 0) {
-      loadUserGroups();
-    }
+    // Runs even when allGroups is empty: users without listing permission still see
+    // their own memberships, rendered from the DN-derived fallback in loadUserGroups.
+    loadUserGroups();
   }, [allGroups, user.memberOf, loadUserGroups]);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
-    if (searchQuery.length < 2) {
+    if (!canSearch || searchQuery.length < 2) {
       setSearchResults([]);
       return;
     }
@@ -131,7 +141,7 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [searchQuery, groups]);
+  }, [searchQuery, groups, canSearch]);
 
   const addGroupToTable = (group: Group) => {
     const newGroupStatus: UserGroupStatus = { group, isMember: true, membershipType: 'direct' };
@@ -265,38 +275,40 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
         <CardTitle className="text-lg">Group Membership</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Group search */}
-        <div className="relative" ref={searchRef}>
-          <div className="relative flex items-center">
-            <Search className="absolute left-3 w-4 h-4 text-muted-foreground pointer-events-none" />
-            <Input
-              type="text"
-              placeholder="Search groups to add..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onFocus={() => searchResults.length > 0 && setIsSearchOpen(true)}
-              className="pl-10"
-            />
-            {isSearching && (
-              <div className="absolute right-3 w-4 h-4 rounded-full border-2 border-muted border-t-primary animate-spin" />
+        {/* Group search — hidden for users without search permission */}
+        {canSearch && (
+          <div className="relative" ref={searchRef}>
+            <div className="relative flex items-center">
+              <Search className="absolute left-3 w-4 h-4 text-muted-foreground pointer-events-none" />
+              <Input
+                type="text"
+                placeholder="Search groups to add..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onFocus={() => searchResults.length > 0 && setIsSearchOpen(true)}
+                className="pl-10"
+              />
+              {isSearching && (
+                <div className="absolute right-3 w-4 h-4 rounded-full border-2 border-muted border-t-primary animate-spin" />
+              )}
+            </div>
+
+            {isSearchOpen && searchResults.length > 0 && (
+              <div className="absolute top-full left-0 right-0 mt-2 bg-card rounded-lg shadow-xl max-h-60 overflow-y-auto z-50 border border-border">
+                {searchResults.map((group) => (
+                  <button
+                    key={group.dn}
+                    className="flex flex-col gap-1 px-4 py-3 w-full text-left hover:bg-muted transition-colors border-b border-border last:border-0"
+                    onClick={() => addGroupToTable(group)}
+                  >
+                    <span className="text-sm font-medium text-foreground">{group.cn}</span>
+                    <span className="text-xs text-muted-foreground">{group.description || 'No description'}</span>
+                  </button>
+                ))}
+              </div>
             )}
           </div>
-
-          {isSearchOpen && searchResults.length > 0 && (
-            <div className="absolute top-full left-0 right-0 mt-2 bg-card rounded-lg shadow-xl max-h-60 overflow-y-auto z-50 border border-border">
-              {searchResults.map((group) => (
-                <button
-                  key={group.dn}
-                  className="flex flex-col gap-1 px-4 py-3 w-full text-left hover:bg-muted transition-colors border-b border-border last:border-0"
-                  onClick={() => addGroupToTable(group)}
-                >
-                  <span className="text-sm font-medium text-foreground">{group.cn}</span>
-                  <span className="text-xs text-muted-foreground">{group.description || 'No description'}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        )}
 
         {/* Data table */}
         <div className="rounded-md border border-border overflow-x-auto">

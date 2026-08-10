@@ -22,6 +22,7 @@ data:
   AD_SEARCH_BASE_DN: {{ .Values.config.ad.searchBaseDN | quote }}
   AD_EXCLUDED_OBJECTS: {{ .Values.config.ad.excludedObjects | quote }}
   AD_EXCLUDED_GROUPS: {{ .Values.config.ad.excludedGroups | quote }}
+  AD_SEARCH_ALLOWED_GROUPS: {{ .Values.config.ad.searchAllowedGroups | quote }}
   {{- if .Values.config.ad.caCertSecretName }}
   AD_CA_CERT_PATH: "/certs/ca/{{ .Values.config.ad.caCertSecretKey }}"
   {{- end }}

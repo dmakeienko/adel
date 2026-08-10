@@ -237,6 +237,7 @@ Response:
 | AD_SEARCH_BASE_DN | Restrict searches to a specific OU (falls back to AD_BASE_DN if empty) | |
 | AD_EXCLUDED_OBJECTS | Semicolon-separated list of DN path fragments (OUs, CN containers) to exclude from results | |
 | AD_EXCLUDED_GROUPS | Semicolon-separated list of group CNs or DNs to exclude from results | |
+| AD_SEARCH_ALLOWED_GROUPS | Semicolon-separated group CNs or DNs allowed to use `/api/v1/search`; empty allows all authenticated users | |
 | TLS_ENABLED | Enable HTTPS | true |
 | TLS_CERT_FILE | Path to TLS certificate | certs/server.crt |
 | TLS_KEY_FILE | Path to TLS private key | certs/server.key |
@@ -261,6 +262,26 @@ To hide specific groups from group listings and lookups:
 ```bash
 AD_EXCLUDED_GROUPS=Domain Admins;Schema Admins;Enterprise Admins
 ```
+
+To allow only members of selected AD groups to use the generic search endpoint:
+
+```bash
+AD_SEARCH_ALLOWED_GROUPS=Helpdesk;CN=Directory Admins,OU=Groups,DC=example,DC=com
+```
+
+Group CN and DN matching is case-insensitive. Use a full DN when groups with the same CN exist in multiple OUs.
+
+Nested group membership is resolved: a user in a group that is itself a member of an
+allowed group is permitted. This uses the Active Directory `LDAP_MATCHING_RULE_IN_CHAIN`
+extension (OID `1.2.840.113556.1.4.1941`); directories that do not implement it fall back
+to direct `memberOf` values, which is logged at warning level.
+
+Memberships are resolved once at login and cached for the lifetime of the session, so
+group changes in AD take effect on the user's next login rather than immediately.
+
+Users outside the allow-list receive `403` from `/api/v1/search`, and the web UI hides the
+search field for them based on the `canSearch` field of `GET /api/v1/session`. The
+server-side check is the enforcement point; hiding the field is a convenience only.
 
 ### LDAPS Configuration
 

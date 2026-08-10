@@ -2,10 +2,12 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import api from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 import type { SearchEntry } from '../types';
 import { Input } from '@/components/ui/input';
 
 export function UserSearch() {
+  const { canSearch } = useAuth();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchEntry[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -27,7 +29,7 @@ export function UserSearch() {
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
-    if (query.length < 2) {
+    if (!canSearch || query.length < 2) {
       setResults([]);
       return;
     }
@@ -50,7 +52,7 @@ export function UserSearch() {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query]);
+  }, [query, canSearch]);
 
   const handleSelect = (entry: SearchEntry) => {
     const username =
@@ -62,6 +64,10 @@ export function UserSearch() {
     setIsOpen(false);
     setResults([]);
   };
+
+  if (!canSearch) {
+    return null;
+  }
 
   return (
     <div className="relative w-full max-w-[500px]" ref={wrapperRef}>

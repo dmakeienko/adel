@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"math"
 	"net/http"
@@ -9,7 +10,9 @@ import (
 	"time"
 
 	"adel/config"
+	"adel/middleware"
 	"adel/models"
+	"adel/session"
 )
 
 func TestIsUserEnabled(t *testing.T) {
@@ -266,6 +269,36 @@ func TestGetCurrentUserNoSession(t *testing.T) {
 	}
 }
 
+func TestSearchForbiddenOutsideAllowedGroups(t *testing.T) {
+	cfg := &config.Config{
+		AD: config.ADConfig{
+			SearchAllowedGroups: []string{"Helpdesk"},
+		},
+	}
+	h := NewHandler(cfg, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/search?query=user", nil)
+	sess := &session.Session{
+		Username: "testuser",
+		MemberOf: []string{"CN=Employees,OU=Groups,DC=example,DC=com"},
+	}
+	ctx := context.WithValue(req.Context(), middleware.SessionContextKey, sess)
+	rr := httptest.NewRecorder()
+
+	h.Search(rr, req.WithContext(ctx))
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusForbidden)
+	}
+	var response models.SearchResponse
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if response.Success || response.Error == "" {
+		t.Errorf("response = %+v, want unsuccessful response with an error", response)
+	}
+}
+
 // stringReader creates an io.Reader from a string for use in request bodies.
 func stringReader(s string) *stringReaderImpl {
 	return &stringReaderImpl{data: []byte(s), pos: 0}
@@ -297,5 +330,35 @@ func TestFiletimeToUnixTimeUTC(t *testing.T) {
 	}
 	if got.Location() != time.UTC {
 		t.Errorf("location = %v, want UTC", got.Location())
+	}
+}
+
+func TestGetAllGroupsForbiddenOutsideAllowedGroups(t *testing.T) {
+	cfg := &config.Config{
+		AD: config.ADConfig{
+			SearchAllowedGroups: []string{"infrastructure-services"},
+		},
+	}
+	h := NewHandler(cfg, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/groups?query=infra", nil)
+	sess := &session.Session{
+		Username: "testuser",
+		MemberOf: []string{"CN=Employees,OU=Groups,DC=example,DC=com"},
+	}
+	ctx := context.WithValue(req.Context(), middleware.SessionContextKey, sess)
+	rr := httptest.NewRecorder()
+
+	h.GetAllGroups(rr, req.WithContext(ctx))
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusForbidden)
+	}
+	var response models.GroupsResponse
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if response.Success || response.Error == "" {
+		t.Errorf("response = %+v, want unsuccessful response with an error", response)
 	}
 }

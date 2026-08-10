@@ -87,6 +87,15 @@ export interface SearchResponse {
   error?: string;
 }
 
+export interface SessionInfo {
+  sessionId: string;
+  username: string;
+  userDN: string;
+  createdAt: string;
+  expiresAt: string;
+  canSearch: boolean;
+}
+
 export interface GroupMembershipChange {
   groupName: string;
   action: 'add' | 'remove';

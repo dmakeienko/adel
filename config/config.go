@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
+
+	"github.com/go-ldap/ldap/v3"
 )
 
 // Config holds all configuration for the application
@@ -42,6 +45,9 @@ type ADConfig struct {
 	ExcludedObjects []string
 	// ExcludedGroups is a list of group CNs or DNs that are filtered out of group results.
 	ExcludedGroups []string
+	// SearchAllowedGroups is a list of group CNs or DNs whose members may use the search endpoint.
+	// If empty, search is available to every authenticated user.
+	SearchAllowedGroups []string
 	// Optional: Path to CA certificate for LDAPS
 	CACertPath string
 }
@@ -80,18 +86,19 @@ func Load() (*Config, error) {
 			IdleTimeout:  getDurationEnv("IDLE_TIMEOUT", 60) * time.Second,
 		},
 		AD: ADConfig{
-			Server:          getEnv("AD_SERVER", ""),
-			Port:            getIntEnv("AD_PORT", 389),
-			BaseDN:          getEnv("AD_BASE_DN", ""),
-			UseSSL:          getBoolEnv("AD_USE_SSL", false),
-			SkipTLS:         getBoolEnv("AD_SKIP_TLS", false),
-			UserFilter:      getEnv("AD_USER_FILTER", "(objectClass=user)"),
-			GroupFilter:     getEnv("AD_GROUP_FILTER", "(objectClass=group)"),
-			SearchFilter:    getEnv("AD_SEARCH_FILTER", "(objectClass=*)"),
-			SearchBaseDN:    getEnv("AD_SEARCH_BASE_DN", ""),
-			ExcludedObjects: getDNSliceEnv("AD_EXCLUDED_OBJECTS", nil),
-			ExcludedGroups:  getDNSliceEnv("AD_EXCLUDED_GROUPS", nil),
-			CACertPath:      getEnv("AD_CA_CERT_PATH", ""),
+			Server:              getEnv("AD_SERVER", ""),
+			Port:                getIntEnv("AD_PORT", 389),
+			BaseDN:              getEnv("AD_BASE_DN", ""),
+			UseSSL:              getBoolEnv("AD_USE_SSL", false),
+			SkipTLS:             getBoolEnv("AD_SKIP_TLS", false),
+			UserFilter:          getEnv("AD_USER_FILTER", "(objectClass=user)"),
+			GroupFilter:         getEnv("AD_GROUP_FILTER", "(objectClass=group)"),
+			SearchFilter:        getEnv("AD_SEARCH_FILTER", "(objectClass=*)"),
+			SearchBaseDN:        getEnv("AD_SEARCH_BASE_DN", ""),
+			ExcludedObjects:     getDNSliceEnv("AD_EXCLUDED_OBJECTS", nil),
+			ExcludedGroups:      getDNSliceEnv("AD_EXCLUDED_GROUPS", nil),
+			SearchAllowedGroups: getDNSliceEnv("AD_SEARCH_ALLOWED_GROUPS", nil),
+			CACertPath:          getEnv("AD_CA_CERT_PATH", ""),
 		},
 		TLS: TLSConfig{
 			Enabled:  getBoolEnv("TLS_ENABLED", true),
@@ -136,6 +143,40 @@ func (c *ADConfig) GetSearchBaseDN() string {
 		return c.SearchBaseDN
 	}
 	return c.BaseDN
+}
+
+// IsSearchAllowedFor reports whether a user holding the given group DNs may use the
+// search endpoint. Allowed groups may be configured as a full DN or a bare group CN.
+// An empty allow-list preserves the default of allowing every authenticated user.
+func (c *ADConfig) IsSearchAllowedFor(memberOf []string) bool {
+	if len(c.SearchAllowedGroups) == 0 {
+		return true
+	}
+
+	for _, groupDN := range memberOf {
+		for _, allowedGroup := range c.SearchAllowedGroups {
+			if strings.EqualFold(groupDN, allowedGroup) {
+				return true
+			}
+		}
+
+		parsedDN, err := ldap.ParseDN(groupDN)
+		if err != nil || len(parsedDN.RDNs) == 0 {
+			continue
+		}
+		for _, attribute := range parsedDN.RDNs[0].Attributes {
+			if !strings.EqualFold(attribute.Type, "CN") {
+				continue
+			}
+			for _, allowedGroup := range c.SearchAllowedGroups {
+				if !strings.Contains(allowedGroup, "=") && strings.EqualFold(attribute.Value, allowedGroup) {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
 }
 
 // GetLDAPURL returns the LDAP connection URL

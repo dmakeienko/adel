@@ -23,6 +23,7 @@ import (
 const (
 	errMsgSessionNotFound    = "Session not found"
 	errMsgInvalidRequestBody = "Invalid request body"
+	errMsgSearchNotPermitted = "Search is not permitted for this user"
 	logKeyUserDN             = "userDN"
 )
 
@@ -241,6 +242,19 @@ func (h *Handler) GetAllGroups(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, models.GroupsResponse{
 			Success: false,
 			Error:   errMsgSessionNotFound,
+		})
+		return
+	}
+	if !h.config.AD.IsSearchAllowedFor(sess.MemberOf) {
+		slog.Warn("Group listing denied: user is not a member of any allowed group",
+			"username", sess.Username,
+			logKeyUserDN, sess.UserDN,
+			"allowed_groups", h.config.AD.SearchAllowedGroups,
+			"user_group_count", len(sess.MemberOf),
+		)
+		writeJSON(w, http.StatusForbidden, models.GroupsResponse{
+			Success: false,
+			Error:   errMsgSearchNotPermitted,
 		})
 		return
 	}
@@ -554,6 +568,19 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, models.SearchResponse{
 			Success: false,
 			Error:   errMsgSessionNotFound,
+		})
+		return
+	}
+	if !h.config.AD.IsSearchAllowedFor(sess.MemberOf) {
+		slog.Warn("Search denied: user is not a member of any allowed group",
+			"username", sess.Username,
+			logKeyUserDN, sess.UserDN,
+			"allowed_groups", h.config.AD.SearchAllowedGroups,
+			"user_group_count", len(sess.MemberOf),
+		)
+		writeJSON(w, http.StatusForbidden, models.SearchResponse{
+			Success: false,
+			Error:   errMsgSearchNotPermitted,
 		})
 		return
 	}

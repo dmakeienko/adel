@@ -6,6 +6,7 @@ import type {
   GroupsResponse,
   APIResponse,
   SearchResponse,
+  SessionInfo,
 } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
@@ -72,6 +73,13 @@ class ApiService {
     });
     this.setSessionId(null);
     return response.data;
+  }
+
+  async getSessionInfo(): Promise<SessionInfo | null> {
+    const response = await this.client.get<APIResponse<SessionInfo>>(
+      '/api/v1/session'
+    );
+    return response.data.success ? response.data.data ?? null : null;
   }
 
   async getCurrentUser(): Promise<UserResponse> {

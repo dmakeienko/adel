@@ -104,6 +104,8 @@ config:
     searchBaseDN: ""
     excludedObjects: ""
     excludedGroups: ""
+    # Semicolon-separated group CNs or DNs. Empty allows every authenticated user to search.
+    searchAllowedGroups: ""
     # Name of a Secret key holding the CA cert PEM, mounted at /certs/ca/ca.crt when set.
     caCertSecretName: ""
     caCertSecretKey: "ca.crt"

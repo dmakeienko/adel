@@ -23,6 +23,7 @@ type Session struct {
 	ID         string
 	Username   string
 	UserDN     string
+	MemberOf   []string
 	Conn       *ldap.Conn
 	CreatedAt  time.Time
 	LastAccess time.Time
@@ -80,10 +81,19 @@ func (m *Manager) Login(username, password string) (*Session, error) {
 	}
 
 	// Get user DN after successful bind
-	userDN, err := m.findUserDN(conn, username)
+	userDN, memberOf, err := m.findUser(conn, username)
 	if err != nil {
-		// Use bindDN as fallback
+		// Use bindDN as fallback. Group memberships are unknown in this path, so any
+		// group-restricted endpoint will deny this session; log it so that denial is
+		// diagnosable rather than silent.
+		slog.Warn("Failed to look up user entry after bind, group memberships unavailable",
+			"username", username,
+			"error", err,
+		)
 		userDN = bindDN
+		memberOf = nil
+	} else {
+		memberOf = m.resolveGroupMemberships(conn, username, userDN, memberOf)
 	}
 
 	// Generate session ID
@@ -99,6 +109,7 @@ func (m *Manager) Login(username, password string) (*Session, error) {
 		ID:         sessionID,
 		Username:   username,
 		UserDN:     userDN,
+		MemberOf:   memberOf,
 		Conn:       conn,
 		CreatedAt:  now,
 		LastAccess: now,
@@ -182,6 +193,7 @@ func (m *Manager) GetSessionInfo(sessionID string) (*models.SessionInfo, error) 
 		UserDN:    session.UserDN,
 		CreatedAt: session.CreatedAt,
 		ExpiresAt: session.ExpiresAt,
+		CanSearch: m.cfg.AD.IsSearchAllowedFor(session.MemberOf),
 	}, nil
 }
 
@@ -234,9 +246,13 @@ func (m *Manager) createLDAPConnection() (*ldap.Conn, error) {
 	return conn, nil
 }
 
-// findUserDN finds the full DN for a user
-func (m *Manager) findUserDN(conn *ldap.Conn, username string) (string, error) {
-	// Search for the user
+// matchingRuleInChain is the AD-specific LDAP_MATCHING_RULE_IN_CHAIN OID. Applied to
+// a "member" filter it walks the group nesting chain server-side, so a single search
+// returns the transitive closure of a user's group memberships.
+const matchingRuleInChain = "1.2.840.113556.1.4.1941"
+
+// findUser finds the full DN and direct group memberships for a user.
+func (m *Manager) findUser(conn *ldap.Conn, username string) (string, []string, error) {
 	searchRequest := ldap.NewSearchRequest(
 		m.cfg.AD.GetSearchBaseDN(),
 		ldap.ScopeWholeSubtree,
@@ -244,17 +260,17 @@ func (m *Manager) findUserDN(conn *ldap.Conn, username string) (string, error) {
 		1, 0, false,
 		fmt.Sprintf("(&%s(|(sAMAccountName=%s)(userPrincipalName=%s)))",
 			m.cfg.AD.UserFilter, ldap.EscapeFilter(username), ldap.EscapeFilter(username)),
-		[]string{"dn"},
+		[]string{"dn", "memberOf"},
 		nil,
 	)
 
 	sr, err := conn.Search(searchRequest)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	if len(sr.Entries) == 0 {
-		return "", fmt.Errorf("user not found")
+		return "", nil, fmt.Errorf("user not found")
 	}
 
 	// Check if the user is in an excluded object (OU, CN container, etc.)
@@ -262,11 +278,69 @@ func (m *Manager) findUserDN(conn *ldap.Conn, username string) (string, error) {
 	dnLower := strings.ToLower(dn)
 	for _, excluded := range m.cfg.AD.ExcludedObjects {
 		if strings.Contains(dnLower, strings.ToLower(excluded)) {
-			return "", fmt.Errorf("user not found")
+			return "", nil, fmt.Errorf("user not found")
 		}
 	}
 
-	return dn, nil
+	return dn, sr.Entries[0].GetAttributeValues("memberOf"), nil
+}
+
+// findNestedGroups returns the DNs of every group the user belongs to, including
+// groups reached indirectly through nested group membership. It relies on the AD
+// matching-rule-in-chain extension; directories that do not implement it return no
+// entries, in which case the caller falls back to the direct memberOf values.
+func (m *Manager) findNestedGroups(conn *ldap.Conn, userDN string) ([]string, error) {
+	searchRequest := ldap.NewSearchRequest(
+		m.cfg.AD.GetSearchBaseDN(),
+		ldap.ScopeWholeSubtree,
+		ldap.NeverDerefAliases,
+		0, 0, false,
+		fmt.Sprintf("(&%s(member:%s:=%s))",
+			m.cfg.AD.GroupFilter, matchingRuleInChain, ldap.EscapeFilter(userDN)),
+		[]string{"dn"},
+		nil,
+	)
+
+	sr, err := conn.Search(searchRequest)
+	if err != nil {
+		return nil, err
+	}
+
+	groups := make([]string, 0, len(sr.Entries))
+	for _, entry := range sr.Entries {
+		groups = append(groups, entry.DN)
+	}
+	return groups, nil
+}
+
+// resolveGroupMemberships returns the user's effective group DNs. It prefers the
+// transitive set from findNestedGroups and falls back to the direct memberOf values
+// when the directory does not support matching-rule-in-chain or the search fails.
+func (m *Manager) resolveGroupMemberships(conn *ldap.Conn, username, userDN string, directMemberOf []string) []string {
+	nested, err := m.findNestedGroups(conn, userDN)
+	if err != nil {
+		slog.Warn("Failed to resolve nested group memberships, falling back to direct memberOf",
+			"username", username,
+			"error", err,
+		)
+		return directMemberOf
+	}
+
+	if len(nested) == 0 {
+		// No entries can mean the user genuinely has no groups, or that the
+		// directory ignored the matching rule. Prefer direct memberOf if it has
+		// values, so a non-AD directory does not silently lose all memberships.
+		if len(directMemberOf) > 0 {
+			slog.Warn("Nested group search returned no entries, falling back to direct memberOf",
+				"username", username,
+				"direct_group_count", len(directMemberOf),
+			)
+			return directMemberOf
+		}
+		return nil
+	}
+
+	return nested
 }
 
 // cleanupExpiredSessions periodically removes expired sessions
