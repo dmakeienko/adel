@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +15,9 @@ import (
 	"adel/models"
 	"adel/session"
 )
+
+// testUsername is the session username shared by handler tests.
+const testUsername = "testuser"
 
 func TestIsUserEnabled(t *testing.T) {
 	tests := []struct {
@@ -80,6 +84,7 @@ func TestFiletimeToUnixTime(t *testing.T) {
 		got := filetimeToUnixTime("132500000000000000")
 		if got == nil {
 			t.Fatal("filetimeToUnixTime() returned nil for valid filetime")
+			return
 		}
 		// Should be a date around 2020
 		if got.Year() < 2020 || got.Year() > 2021 {
@@ -279,7 +284,7 @@ func TestSearchForbiddenOutsideAllowedGroups(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/search?query=user", nil)
 	sess := &session.Session{
-		Username: "testuser",
+		Username: testUsername,
 		MemberOf: []string{"CN=Employees,OU=Groups,DC=example,DC=com"},
 	}
 	ctx := context.WithValue(req.Context(), middleware.SessionContextKey, sess)
@@ -327,6 +332,7 @@ func TestFiletimeToUnixTimeUTC(t *testing.T) {
 	got := filetimeToUnixTime("132500000000000000")
 	if got == nil {
 		t.Fatal("expected non-nil time")
+		return
 	}
 	if got.Location() != time.UTC {
 		t.Errorf("location = %v, want UTC", got.Location())
@@ -343,7 +349,7 @@ func TestGetAllGroupsForbiddenOutsideAllowedGroups(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/groups?query=infra", nil)
 	sess := &session.Session{
-		Username: "testuser",
+		Username: testUsername,
 		MemberOf: []string{"CN=Employees,OU=Groups,DC=example,DC=com"},
 	}
 	ctx := context.WithValue(req.Context(), middleware.SessionContextKey, sess)
@@ -360,5 +366,83 @@ func TestGetAllGroupsForbiddenOutsideAllowedGroups(t *testing.T) {
 	}
 	if response.Success || response.Error == "" {
 		t.Errorf("response = %+v, want unsuccessful response with an error", response)
+	}
+}
+
+func TestGetAllGroupsRejectsUnboundedListing(t *testing.T) {
+	// An allowed user must still not be able to list the whole directory: the query
+	// requirement is a cost control, independent of the search allow-list.
+	cfg := &config.Config{AD: config.ADConfig{GroupFilter: "(objectClass=group)"}}
+	h := NewHandler(cfg, nil)
+
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{"no query", "/api/v1/groups"},
+		{"empty query", "/api/v1/groups?query="},
+		{"whitespace query", "/api/v1/groups?query=%20%20"},
+		{"query below minimum length", "/api/v1/groups?query=a"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tt.url, nil)
+			sess := &session.Session{Username: testUsername}
+			ctx := context.WithValue(req.Context(), middleware.SessionContextKey, sess)
+			rr := httptest.NewRecorder()
+
+			h.GetAllGroups(rr, req.WithContext(ctx))
+
+			if rr.Code != http.StatusBadRequest {
+				t.Errorf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+			}
+			var response models.GroupsResponse
+			if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+				t.Fatalf("failed to decode response: %v", err)
+			}
+			if response.Success || response.Error == "" {
+				t.Errorf("response = %+v, want unsuccessful response with an error", response)
+			}
+		})
+	}
+}
+
+func TestResolveGroupsEmptyInputSkipsSearch(t *testing.T) {
+	// No valid DNs means no LDAP search, so a nil session connection must not panic.
+	cfg := &config.Config{AD: config.ADConfig{GroupFilter: "(objectClass=group)"}}
+	h := NewHandler(cfg, nil)
+
+	body := strings.NewReader(`{"dns":["","   ","not-a-valid-dn"]}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/groups/resolve", body)
+	sess := &session.Session{Username: testUsername}
+	ctx := context.WithValue(req.Context(), middleware.SessionContextKey, sess)
+	rr := httptest.NewRecorder()
+
+	h.ResolveGroups(rr, req.WithContext(ctx))
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	var response models.GroupsResponse
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if !response.Success || response.Count != 0 {
+		t.Errorf("response = %+v, want successful empty response", response)
+	}
+}
+
+func TestResolveGroupsRequiresSession(t *testing.T) {
+	h := NewHandler(&config.Config{}, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/groups/resolve",
+		strings.NewReader(`{"dns":[]}`))
+	rr := httptest.NewRecorder()
+
+	h.ResolveGroups(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusUnauthorized)
 	}
 }

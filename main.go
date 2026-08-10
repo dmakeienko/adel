@@ -176,6 +176,7 @@ func setupRouter(handler *handlers.Handler, sessionMgr *session.Manager, cfg *co
 
 	// Group routes
 	protected.HandleFunc("/groups", handler.GetAllGroups).Methods(http.MethodGet)
+	protected.HandleFunc("/groups/resolve", handler.ResolveGroups).Methods(http.MethodPost)
 	protected.HandleFunc("/groups/add-member", handler.AddUserToGroup).Methods(http.MethodPost)
 	protected.HandleFunc("/groups/remove-member", handler.RemoveUserFromGroup).Methods(http.MethodPost, http.MethodDelete)
 

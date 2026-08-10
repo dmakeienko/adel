@@ -130,6 +130,12 @@ type UserResponse struct {
 	Error   string `json:"error,omitempty"`
 }
 
+// ResolveGroupsRequest asks for details of a specific set of groups by DN, so callers
+// can enrich known memberships without listing the directory.
+type ResolveGroupsRequest struct {
+	DNs []string `json:"dns"`
+}
+
 // GroupsResponse represents groups list response
 type GroupsResponse struct {
 	Success bool     `json:"success"`
