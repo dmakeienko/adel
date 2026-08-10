@@ -152,14 +152,35 @@ curl -k -X PUT https://localhost:8080/api/v1/users \
   }'
 ```
 
-#### Get All Groups
+#### Search Groups
+
+A `query` (minimum 2 characters) or an explicit `filter` is **required**. Listing every
+group is not supported: it walks the entire directory and is prohibitively expensive on
+real domains. `query` matches `cn` and `sAMAccountName` as a substring, so partial input
+returns partial matches. Results are capped by `AD_MAX_SEARCH_RESULTS`.
+
 ```bash
-curl -k https://localhost:8080/api/v1/groups \
+curl -k "https://localhost:8080/api/v1/groups?query=admins" \
   -H "X-Session-ID: your-session-id"
 
 # With optional baseDN
-curl -k "https://localhost:8080/api/v1/groups?baseDN=ou=Groups,dc=example,dc=com" \
+curl -k "https://localhost:8080/api/v1/groups?query=admins&baseDN=ou=Groups,dc=example,dc=com" \
   -H "X-Session-ID: your-session-id"
+```
+
+Omitting both `query` and `filter` returns `400`.
+
+#### Resolve Groups by DN
+
+Looks up a known set of groups in a single search. Used by the UI to show a user's own
+memberships without listing the directory. Unlike `/groups`, this is not gated by
+`AD_SEARCH_ALLOWED_GROUPS`, since the request is bounded by the DNs supplied.
+
+```bash
+curl -k -X POST https://localhost:8080/api/v1/groups/resolve \
+  -H "Content-Type: application/json" \
+  -H "X-Session-ID: your-session-id" \
+  -d '{"dns":["CN=Developers,OU=Groups,DC=example,DC=com"]}'
 ```
 
 #### Add User to Group
@@ -235,6 +256,7 @@ Response:
 | AD_GROUP_FILTER | LDAP filter for groups | (objectClass=group) |
 | AD_SEARCH_FILTER | LDAP filter for general searches | (objectClass=*) |
 | AD_SEARCH_BASE_DN | Restrict searches to a specific OU (falls back to AD_BASE_DN if empty) | |
+| AD_MAX_SEARCH_RESULTS | Maximum entries returned by any single LDAP search (LDAP size limit) | 200 |
 | AD_EXCLUDED_OBJECTS | Semicolon-separated list of DN path fragments (OUs, CN containers) to exclude from results | |
 | AD_EXCLUDED_GROUPS | Semicolon-separated list of group CNs or DNs to exclude from results | |
 | AD_SEARCH_ALLOWED_GROUPS | Semicolon-separated group CNs or DNs allowed to use `/api/v1/search`; empty allows all authenticated users | |

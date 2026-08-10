@@ -110,10 +110,12 @@ class ApiService {
     return response.data;
   }
 
-  async getAllGroups(baseDN?: string): Promise<GroupsResponse> {
-    const params = baseDN ? `?baseDN=${encodeURIComponent(baseDN)}` : '';
-    const response = await this.client.get<GroupsResponse>(
-      `/api/v1/groups${params}`
+  // Resolves a known set of group DNs to full group records. Used instead of listing
+  // every group in the directory just to look up names and descriptions.
+  async resolveGroups(dns: string[]): Promise<GroupsResponse> {
+    const response = await this.client.post<GroupsResponse>(
+      '/api/v1/groups/resolve',
+      { dns }
     );
     return response.data;
   }

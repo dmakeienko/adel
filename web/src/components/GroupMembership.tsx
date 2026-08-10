@@ -48,24 +48,25 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
     return match ? match[1] : dn;
   };
 
-  const loadAllGroups = useCallback(async () => {
-    // Group listing is gated by the same allow-list as search; skip the call for
-    // users who would receive a 403. Their own groups still render from memberOf,
-    // just without the descriptions this lookup would have supplied.
-    if (!canSearch) {
+  // Resolves only the groups this user belongs to, rather than listing the directory.
+  // Purely decorative: it supplies descriptions the DN-derived fallback below lacks,
+  // so a failure degrades the table rather than emptying it.
+  const loadUserGroupDetails = useCallback(async () => {
+    const memberOf = user.memberOf;
+    if (!memberOf || memberOf.length === 0) {
       setAllGroups([]);
       return;
     }
 
     try {
-      const response = await api.getAllGroups();
+      const response = await api.resolveGroups(memberOf);
       if (response.success && response.groups) {
         setAllGroups(response.groups);
       }
     } catch {
-      console.error('Failed to load groups');
+      console.error('Failed to resolve group details');
     }
-  }, [canSearch]);
+  }, [user.memberOf]);
 
   const loadUserGroups = useCallback(() => {
     if (!user.memberOf) {
@@ -95,8 +96,8 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
   }, [user.memberOf, allGroups]);
 
   useEffect(() => {
-    loadAllGroups();
-  }, [loadAllGroups]);
+    loadUserGroupDetails();
+  }, [loadUserGroupDetails]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {

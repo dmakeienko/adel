@@ -45,6 +45,10 @@ type ADConfig struct {
 	ExcludedObjects []string
 	// ExcludedGroups is a list of group CNs or DNs that are filtered out of group results.
 	ExcludedGroups []string
+	// MaxSearchResults caps the number of entries any single LDAP search may return.
+	// It is passed as the LDAP size limit, so the directory stops sending at the cap
+	// rather than the server discarding a large result after transferring it.
+	MaxSearchResults int
 	// SearchAllowedGroups is a list of group CNs or DNs whose members may use the search endpoint.
 	// If empty, search is available to every authenticated user.
 	SearchAllowedGroups []string
@@ -96,6 +100,7 @@ func Load() (*Config, error) {
 			SearchFilter:        getEnv("AD_SEARCH_FILTER", "(objectClass=*)"),
 			SearchBaseDN:        getEnv("AD_SEARCH_BASE_DN", ""),
 			ExcludedObjects:     getDNSliceEnv("AD_EXCLUDED_OBJECTS", nil),
+			MaxSearchResults:    getIntEnv("AD_MAX_SEARCH_RESULTS", 200),
 			ExcludedGroups:      getDNSliceEnv("AD_EXCLUDED_GROUPS", nil),
 			SearchAllowedGroups: getDNSliceEnv("AD_SEARCH_ALLOWED_GROUPS", nil),
 			CACertPath:          getEnv("AD_CA_CERT_PATH", ""),

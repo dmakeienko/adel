@@ -24,8 +24,22 @@ const (
 	errMsgSessionNotFound    = "Session not found"
 	errMsgInvalidRequestBody = "Invalid request body"
 	errMsgSearchNotPermitted = "Search is not permitted for this user"
+	errMsgQueryRequired      = "A query or filter is required; listing all groups is not supported"
 	logKeyUserDN             = "userDN"
+
+	// minGroupQueryLen mirrors the UI's debounce threshold. Shorter queries match
+	// most of the directory, which is the unbounded listing this endpoint refuses.
+	minGroupQueryLen = 2
+
+	// maxResolveDNs caps a single membership-resolution request. A user in more
+	// groups than this is well outside normal, and the filter would get unwieldy.
+	maxResolveDNs = 500
 )
+
+// groupAttributes are the attributes read for group listings and lookups.
+// Deliberately excludes "member": on large groups that array holds every member DN
+// and dominates the response size, and no consumer of these endpoints reads it.
+var groupAttributes = []string{"dn", "cn", "sAMAccountName", "description", "groupType", "distinguishedName"} //nolint:goconst // LDAP schema attribute names, not app-level constants
 
 // Handler holds dependencies for HTTP handlers
 type Handler struct {
@@ -265,16 +279,33 @@ func (h *Handler) GetAllGroups(w http.ResponseWriter, r *http.Request) {
 		baseDN = h.config.AD.GetSearchBaseDN()
 	}
 
-	// query builds a safe escaped filter; falls back to filter param, then config default.
-	filter := h.config.AD.GroupFilter
-	if q := r.URL.Query().Get("query"); q != "" {
-		escaped := ldap.EscapeFilter(q)
+	// A query (or an explicit filter) is mandatory: an unfiltered listing walks every
+	// group under the base DN, which is prohibitively expensive on real directories.
+	query := strings.TrimSpace(r.URL.Query().Get("query"))
+	explicitFilter := r.URL.Query().Get("filter")
+	if query == "" && explicitFilter == "" {
+		writeJSON(w, http.StatusBadRequest, models.GroupsResponse{
+			Success: false,
+			Error:   errMsgQueryRequired,
+		})
+		return
+	}
+	if query != "" && len([]rune(query)) < minGroupQueryLen {
+		writeJSON(w, http.StatusBadRequest, models.GroupsResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Query must be at least %d characters", minGroupQueryLen),
+		})
+		return
+	}
+
+	// query builds a safe escaped filter; an explicit filter is used verbatim.
+	filter := explicitFilter
+	if query != "" {
+		escaped := ldap.EscapeFilter(query)
 		filter = fmt.Sprintf(
 			"(&%s(|(cn=*%s*)(sAMAccountName=*%s*)))",
 			h.config.AD.GroupFilter, escaped, escaped,
 		)
-	} else if f := r.URL.Query().Get("filter"); f != "" {
-		filter = f
 	}
 
 	// Search for groups
@@ -282,9 +313,9 @@ func (h *Handler) GetAllGroups(w http.ResponseWriter, r *http.Request) {
 		baseDN,
 		ldap.ScopeWholeSubtree,
 		ldap.NeverDerefAliases,
-		0, 0, false,
+		h.config.AD.MaxSearchResults, 0, false,
 		filter,
-		[]string{"dn", "cn", "sAMAccountName", "description", "groupType", "member", "memberOf", "distinguishedName"}, //nolint:goconst // LDAP schema attribute names, not app-level constants
+		groupAttributes,
 		nil,
 	)
 
@@ -297,24 +328,116 @@ func (h *Handler) GetAllGroups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	groups := make([]*models.Group, 0, len(sr.Entries))
-	for _, entry := range sr.Entries {
+	groups := h.entriesToGroups(sr.Entries)
+
+	writeJSON(w, http.StatusOK, models.GroupsResponse{
+		Success: true,
+		Groups:  groups,
+		Count:   len(groups),
+	})
+}
+
+// entriesToGroups maps LDAP entries to group models, dropping excluded containers and
+// groups. Members and MemberOf are intentionally left unset: groupAttributes does not
+// request them, since they are unused here and costly on large groups.
+func (h *Handler) entriesToGroups(entries []*ldap.Entry) []*models.Group {
+	groups := make([]*models.Group, 0, len(entries))
+	for _, entry := range entries {
 		cn := entry.GetAttributeValue("cn")
 		if h.isExcludedDN(entry.DN) || h.isExcludedGroup(cn, entry.DN) {
 			continue
 		}
-		group := &models.Group{
+		groups = append(groups, &models.Group{
 			DN:                entry.DN,
 			CN:                cn,
 			SAMAccountName:    entry.GetAttributeValue("sAMAccountName"),
 			Description:       entry.GetAttributeValue("description"),
 			GroupType:         entry.GetAttributeValue("groupType"),
-			Members:           entry.GetAttributeValues("member"),
-			MemberOf:          entry.GetAttributeValues("memberOf"),
 			DistinguishedName: entry.GetAttributeValue("distinguishedName"),
-		}
-		groups = append(groups, group)
+		})
 	}
+	return groups
+}
+
+// ResolveGroups looks up a specific set of group DNs in one search. It exists so the UI
+// can decorate a user's own memberships with names and descriptions without listing the
+// whole directory. The request is bounded by the caller's group count, so unlike
+// GetAllGroups it is not gated by the search allow-list.
+func (h *Handler) ResolveGroups(w http.ResponseWriter, r *http.Request) {
+	sess := middleware.GetSessionFromContext(r.Context())
+	if sess == nil {
+		writeJSON(w, http.StatusUnauthorized, models.GroupsResponse{
+			Success: false,
+			Error:   errMsgSessionNotFound,
+		})
+		return
+	}
+
+	var req models.ResolveGroupsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, models.GroupsResponse{
+			Success: false,
+			Error:   errMsgInvalidRequestBody,
+		})
+		return
+	}
+
+	// Keep only well-formed, non-duplicate DNs. Malformed input is skipped rather than
+	// rejected outright so one bad memberOf value cannot break the whole page.
+	seen := make(map[string]struct{}, len(req.DNs))
+	clauses := make([]string, 0, len(req.DNs))
+	for _, dn := range req.DNs {
+		dn = strings.TrimSpace(dn)
+		if dn == "" {
+			continue
+		}
+		key := strings.ToLower(dn)
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		if _, err := ldap.ParseDN(dn); err != nil {
+			slog.Debug("Skipping malformed DN in group resolve request", "dn", dn, "error", err)
+			continue
+		}
+		seen[key] = struct{}{}
+		clauses = append(clauses, fmt.Sprintf("(distinguishedName=%s)", ldap.EscapeFilter(dn)))
+		if len(clauses) >= maxResolveDNs {
+			slog.Warn("Group resolve request truncated at cap",
+				"username", sess.Username, "requested", len(req.DNs), "cap", maxResolveDNs)
+			break
+		}
+	}
+
+	if len(clauses) == 0 {
+		writeJSON(w, http.StatusOK, models.GroupsResponse{
+			Success: true,
+			Groups:  []*models.Group{},
+			Count:   0,
+		})
+		return
+	}
+
+	filter := fmt.Sprintf("(&%s(|%s))", h.config.AD.GroupFilter, strings.Join(clauses, ""))
+	searchReq := ldap.NewSearchRequest(
+		h.config.AD.GetSearchBaseDN(),
+		ldap.ScopeWholeSubtree,
+		ldap.NeverDerefAliases,
+		len(clauses), 0, false,
+		filter,
+		groupAttributes,
+		nil,
+	)
+
+	sr, err := sess.Conn.Search(searchReq)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, models.GroupsResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to resolve groups: %v", err),
+		})
+		return
+	}
+
+	groups := h.entriesToGroups(sr.Entries)
 
 	writeJSON(w, http.StatusOK, models.GroupsResponse{
 		Success: true,
@@ -632,6 +755,11 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(attributes) == 0 {
 		attributes = []string{"*"}
+	}
+	// Clamp to the configured cap: an unset (0) or oversized client limit would
+	// otherwise let a single request pull the whole directory.
+	if max := h.config.AD.MaxSearchResults; max > 0 && (sizeLimit <= 0 || sizeLimit > max) {
+		sizeLimit = max
 	}
 
 	// Perform LDAP search
