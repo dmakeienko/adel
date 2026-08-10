@@ -154,21 +154,26 @@ curl -k -X PUT https://localhost:8080/api/v1/users \
 
 #### Search Groups
 
-A `query` (minimum 2 characters) or an explicit `filter` is **required**. Listing every
-group is not supported: it walks the entire directory and is prohibitively expensive on
-real domains. `query` matches `cn` and `sAMAccountName` as a substring, so partial input
-returns partial matches. Results are capped by `AD_MAX_SEARCH_RESULTS`.
+A `query` of at least 2 characters is **required**. Listing every group is not supported:
+it walks the entire directory and is prohibitively expensive on real domains. `query`
+matches `cn` and `sAMAccountName` as a substring, so partial input returns partial
+matches. Results are capped by `AD_MAX_SEARCH_RESULTS`.
+
+Raw LDAP filters are **not** accepted on this endpoint. `query` is escaped and wrapped in
+`AD_GROUP_FILTER` server-side, so a caller can only narrow the search, never widen it.
+Use `/api/v1/search` if you need raw-filter access.
 
 ```bash
 curl -k "https://localhost:8080/api/v1/groups?query=admins" \
   -H "X-Session-ID: your-session-id"
 
-# With optional baseDN
+# With optional baseDN — must be at or below the configured search base
 curl -k "https://localhost:8080/api/v1/groups?query=admins&baseDN=ou=Groups,dc=example,dc=com" \
   -H "X-Session-ID: your-session-id"
 ```
 
-Omitting both `query` and `filter` returns `400`.
+Returns `400` when `query` is missing or shorter than 2 characters, when a `filter`
+parameter is supplied, or when `baseDN` falls outside the configured search base.
 
 #### Resolve Groups by DN
 
@@ -200,6 +205,10 @@ curl -k -X POST https://localhost:8080/api/v1/groups/remove-member \
 ```
 
 #### Search (with custom Base DN)
+
+This endpoint accepts a raw LDAP `filter` for advanced use. A supplied `baseDN` must be
+at or below the configured search base; anything outside it returns `400`.
+
 ```bash
 # GET request with query parameters
 curl -k "https://localhost:8080/api/v1/search?baseDN=ou=Users,dc=example,dc=com&filter=(objectClass=user)&attributes=cn,mail,title&sizeLimit=100" \

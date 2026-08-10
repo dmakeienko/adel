@@ -24,7 +24,9 @@ const (
 	errMsgSessionNotFound    = "Session not found"
 	errMsgInvalidRequestBody = "Invalid request body"
 	errMsgSearchNotPermitted = "Search is not permitted for this user"
-	errMsgQueryRequired      = "A query or filter is required; listing all groups is not supported"
+	errMsgQueryRequired      = "A query is required; listing all groups is not supported"
+	errMsgFilterNotAccepted  = "Raw LDAP filters are not accepted; use the query parameter"
+	errMsgBaseDNOutOfScope   = "baseDN must be within the configured search base"
 	logKeyUserDN             = "userDN"
 
 	// minGroupQueryLen mirrors the UI's debounce threshold. Shorter queries match
@@ -273,24 +275,39 @@ func (h *Handler) GetAllGroups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get optional baseDN from query params
+	// An optional baseDN may narrow the search, but only within the configured base.
 	baseDN := r.URL.Query().Get("baseDN")
 	if baseDN == "" {
 		baseDN = h.config.AD.GetSearchBaseDN()
+	} else if !h.isWithinSearchBase(baseDN) {
+		writeJSON(w, http.StatusBadRequest, models.GroupsResponse{
+			Success: false,
+			Error:   errMsgBaseDNOutOfScope,
+		})
+		return
 	}
 
-	// A query (or an explicit filter) is mandatory: an unfiltered listing walks every
-	// group under the base DN, which is prohibitively expensive on real directories.
+	// A query is mandatory: an unfiltered listing walks every group under the base DN,
+	// which is prohibitively expensive on real directories. Raw LDAP filters are not
+	// accepted here — they would bypass the length floor and the configured group
+	// filter, letting a caller re-create the unbounded listing this endpoint refuses.
+	if raw := r.URL.Query().Get("filter"); raw != "" {
+		writeJSON(w, http.StatusBadRequest, models.GroupsResponse{
+			Success: false,
+			Error:   errMsgFilterNotAccepted,
+		})
+		return
+	}
+
 	query := strings.TrimSpace(r.URL.Query().Get("query"))
-	explicitFilter := r.URL.Query().Get("filter")
-	if query == "" && explicitFilter == "" {
+	if query == "" {
 		writeJSON(w, http.StatusBadRequest, models.GroupsResponse{
 			Success: false,
 			Error:   errMsgQueryRequired,
 		})
 		return
 	}
-	if query != "" && len([]rune(query)) < minGroupQueryLen {
+	if len([]rune(query)) < minGroupQueryLen {
 		writeJSON(w, http.StatusBadRequest, models.GroupsResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Query must be at least %d characters", minGroupQueryLen),
@@ -298,15 +315,13 @@ func (h *Handler) GetAllGroups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// query builds a safe escaped filter; an explicit filter is used verbatim.
-	filter := explicitFilter
-	if query != "" {
-		escaped := ldap.EscapeFilter(query)
-		filter = fmt.Sprintf(
-			"(&%s(|(cn=*%s*)(sAMAccountName=*%s*)))",
-			h.config.AD.GroupFilter, escaped, escaped,
-		)
-	}
+	// Escaped and wrapped in the configured group filter, so a caller can only ever
+	// narrow the search, never widen it.
+	escaped := ldap.EscapeFilter(query)
+	filter := fmt.Sprintf(
+		"(&%s(|(cn=*%s*)(sAMAccountName=*%s*)))",
+		h.config.AD.GroupFilter, escaped, escaped,
+	)
 
 	// Search for groups
 	searchReq := ldap.NewSearchRequest(
@@ -739,9 +754,16 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 		sizeLimit = req.SizeLimit
 	}
 
-	// Use defaults if not provided
+	// Use defaults if not provided. A supplied baseDN may only narrow the search:
+	// the raw filter below is deliberately open, so scope stays anchored here.
 	if baseDN == "" {
 		baseDN = h.config.AD.GetSearchBaseDN()
+	} else if !h.isWithinSearchBase(baseDN) {
+		writeJSON(w, http.StatusBadRequest, models.SearchResponse{
+			Success: false,
+			Error:   errMsgBaseDNOutOfScope,
+		})
+		return
 	}
 	// query takes precedence over filter: build a safe, escaped filter server-side.
 	if query != "" {
@@ -842,6 +864,25 @@ func (h *Handler) isExcludedDN(dn string) bool {
 		}
 	}
 	return false
+}
+
+// isWithinSearchBase reports whether dn is the configured search base or sits beneath
+// it. A caller-supplied base DN may only narrow the search: without this check it could
+// point at an unrelated part of the tree and escape the scoping SearchBaseDN enforces.
+// Comparison is done on lowercased DNs: ldap.DN compares attribute values
+// case-sensitively, whereas AD treats them case-insensitively, so "DC=Example" and
+// "dc=example" must both be accepted. Parsing still happens on the real string, so
+// escaping and multi-valued RDNs are handled structurally rather than by string match.
+func (h *Handler) isWithinSearchBase(dn string) bool {
+	base, err := ldap.ParseDN(strings.ToLower(h.config.AD.GetSearchBaseDN()))
+	if err != nil {
+		return false
+	}
+	candidate, err := ldap.ParseDN(strings.ToLower(dn))
+	if err != nil {
+		return false
+	}
+	return base.Equal(candidate) || base.AncestorOf(candidate)
 }
 
 // isExcludedGroup checks whether a group CN or DN matches the excluded groups list.

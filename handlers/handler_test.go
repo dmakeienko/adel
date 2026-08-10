@@ -16,8 +16,12 @@ import (
 	"adel/session"
 )
 
-// testUsername is the session username shared by handler tests.
-const testUsername = "testuser"
+// Fixture values shared by handler tests.
+const (
+	testUsername    = "testuser"
+	testGroupFilter = "(objectClass=group)"
+	testBaseDN      = "dc=example,dc=com"
+)
 
 func TestIsUserEnabled(t *testing.T) {
 	tests := []struct {
@@ -372,7 +376,7 @@ func TestGetAllGroupsForbiddenOutsideAllowedGroups(t *testing.T) {
 func TestGetAllGroupsRejectsUnboundedListing(t *testing.T) {
 	// An allowed user must still not be able to list the whole directory: the query
 	// requirement is a cost control, independent of the search allow-list.
-	cfg := &config.Config{AD: config.ADConfig{GroupFilter: "(objectClass=group)"}}
+	cfg := &config.Config{AD: config.ADConfig{GroupFilter: testGroupFilter}}
 	h := NewHandler(cfg, nil)
 
 	tests := []struct {
@@ -408,9 +412,100 @@ func TestGetAllGroupsRejectsUnboundedListing(t *testing.T) {
 	}
 }
 
+func TestGetAllGroupsRejectsRawFilter(t *testing.T) {
+	// A raw filter would bypass both the length floor and AD_GROUP_FILTER, letting a
+	// caller re-create the unbounded listing the query requirement exists to prevent.
+	cfg := &config.Config{AD: config.ADConfig{
+		GroupFilter: testGroupFilter,
+		BaseDN:      testBaseDN,
+	}}
+	h := NewHandler(cfg, nil)
+
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{"filter alone", "/api/v1/groups?filter=%28objectClass%3D%2A%29"},
+		{"filter alongside a valid query", "/api/v1/groups?query=admins&filter=%28objectClass%3D%2A%29"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tt.url, nil)
+			sess := &session.Session{Username: testUsername}
+			ctx := context.WithValue(req.Context(), middleware.SessionContextKey, sess)
+			rr := httptest.NewRecorder()
+
+			h.GetAllGroups(rr, req.WithContext(ctx))
+
+			if rr.Code != http.StatusBadRequest {
+				t.Errorf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+			}
+			var response models.GroupsResponse
+			if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+				t.Fatalf("failed to decode response: %v", err)
+				return
+			}
+			if response.Success || response.Error == "" {
+				t.Errorf("response = %+v, want unsuccessful response with an error", response)
+			}
+		})
+	}
+}
+
+func TestIsWithinSearchBase(t *testing.T) {
+	cfg := &config.Config{AD: config.ADConfig{BaseDN: testBaseDN}}
+	h := NewHandler(cfg, nil)
+
+	tests := []struct {
+		name string
+		dn   string
+		want bool
+	}{
+		{"the base itself", "dc=example,dc=com", true},
+		{"a child OU", "ou=Groups,dc=example,dc=com", true},
+		{"a deeper descendant", "cn=Admins,ou=Groups,dc=example,dc=com", true},
+		{"differing case and spacing", "OU=Groups, DC=Example, DC=Com", true},
+		{"an unrelated tree", "dc=evil,dc=com", false},
+		{"a parent of the base", "dc=com", false},
+		{"a suffix-matching impostor", "dc=notexample,dc=com", false},
+		{"malformed input", "not-a-dn", false},
+		{"empty input", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := h.isWithinSearchBase(tt.dn); got != tt.want {
+				t.Errorf("isWithinSearchBase(%q) = %v, want %v", tt.dn, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetAllGroupsRejectsBaseDNOutsideSearchBase(t *testing.T) {
+	// A baseDN outside the configured base would escape the scoping SearchBaseDN exists
+	// to enforce, so it is refused before the search is issued.
+	cfg := &config.Config{AD: config.ADConfig{
+		GroupFilter: testGroupFilter,
+		BaseDN:      testBaseDN,
+	}}
+	h := NewHandler(cfg, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/groups?query=admins&baseDN=dc%3Devil%2Cdc%3Dcom", nil)
+	sess := &session.Session{Username: testUsername}
+	ctx := context.WithValue(req.Context(), middleware.SessionContextKey, sess)
+	rr := httptest.NewRecorder()
+
+	h.GetAllGroups(rr, req.WithContext(ctx))
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
 func TestResolveGroupsEmptyInputSkipsSearch(t *testing.T) {
 	// No valid DNs means no LDAP search, so a nil session connection must not panic.
-	cfg := &config.Config{AD: config.ADConfig{GroupFilter: "(objectClass=group)"}}
+	cfg := &config.Config{AD: config.ADConfig{GroupFilter: testGroupFilter}}
 	h := NewHandler(cfg, nil)
 
 	body := strings.NewReader(`{"dns":["","   ","not-a-valid-dn"]}`)
