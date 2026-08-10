@@ -116,7 +116,7 @@ func TestGetDNSliceEnv(t *testing.T) {
 	t.Setenv("TEST_DN_SLICE_ENV", "Helpdesk; CN=Directory Admins,OU=Groups,DC=example,DC=com ; ")
 
 	got := getDNSliceEnv("TEST_DN_SLICE_ENV", nil)
-	want := []string{"Helpdesk", "CN=Directory Admins,OU=Groups,DC=example,DC=com"}
+	want := []string{"Helpdesk", "CN=Directory Admins,OU=Groups,DC=example,DC=com"} //nolint:goconst // test fixture data
 	if len(got) != len(want) {
 		t.Fatalf("getDNSliceEnv() = %v, want %v", got, want)
 	}
