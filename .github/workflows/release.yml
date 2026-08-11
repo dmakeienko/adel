@@ -95,6 +95,8 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/adel:${{ steps.version.outputs.version }}
             ${{ secrets.DOCKERHUB_USERNAME }}/adel:latest
