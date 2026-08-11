@@ -9,6 +9,7 @@ import type {
   SearchResponse,
   SessionInfo,
   HealthResponse,
+  TeamResponse,
 } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
@@ -135,6 +136,25 @@ class ApiService {
     } catch (error) {
       if (axios.isAxiosError(error) && error.response?.data) {
         return error.response.data as GroupDetailResponse;
+      }
+      return {
+        success: false,
+        memberCount: 0,
+        error: error instanceof Error ? error.message : 'Unknown error occurred',
+      };
+    }
+  }
+
+  // Returns the groups the current user leads, each with its members. The scope is
+  // derived server-side from the session, so there is nothing to pass in. Errors are
+  // returned as data so the Team page can render the server's message.
+  async getTeam(): Promise<TeamResponse> {
+    try {
+      const response = await this.client.get<TeamResponse>('/api/v1/team');
+      return response.data;
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.data) {
+        return error.response.data as TeamResponse;
       }
       return {
         success: false,

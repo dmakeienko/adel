@@ -169,6 +169,42 @@ type GroupDetailResponse struct {
 	Error       string `json:"error,omitempty"`
 }
 
+// GroupMembershipResponse reports a user's group memberships together with the
+// leadership roles derived from them.
+type GroupMembershipResponse struct {
+	Success bool   `json:"success"`
+	Message string `json:"message,omitempty"`
+	// GroupDetails holds the LDAP details of every group the user belongs to, including
+	// groups that carry no lead or PM role.
+	GroupDetails []*Group `json:"group_details"`
+	// LeadGroupMembership holds the unique wildcard identifiers (e.g. "CN=engineering-*")
+	// of the groups in which the user is a lead or PM. Empty for a user with no role.
+	LeadGroupMembership []string `json:"lead_group_membership"`
+	Error               string   `json:"error,omitempty"`
+}
+
+// TeamGroup is one group a lead is responsible for, together with its members.
+type TeamGroup struct {
+	Group   *Group         `json:"group"`
+	Members []*GroupMember `json:"members"`
+	// Truncated reports that the directory capped this group's member list.
+	Truncated bool `json:"truncated,omitempty"`
+}
+
+// TeamResponse lists the groups the caller leads and everyone in them. It backs the
+// UI's Team view, which shows a lead their subordinates without exposing the directory.
+type TeamResponse struct {
+	Success bool         `json:"success"`
+	Message string       `json:"message,omitempty"`
+	Groups  []*TeamGroup `json:"groups"`
+	// MemberCount is the number of distinct users across all groups, so a person in
+	// two of the lead's teams is counted once.
+	MemberCount int `json:"memberCount"`
+	// LeadGroupMembership echoes the wildcard identifiers defining this scope.
+	LeadGroupMembership []string `json:"lead_group_membership"`
+	Error               string   `json:"error,omitempty"`
+}
+
 // GroupsResponse represents groups list response
 type GroupsResponse struct {
 	Success bool     `json:"success"`
@@ -198,6 +234,10 @@ type SessionInfo struct {
 	// CanSearch reports whether this session may use the search endpoint. It lets the
 	// UI hide search controls; the server-side check remains the enforcement point.
 	CanSearch bool `json:"canSearch"`
+	// LeadGroupMembership holds the wildcard identifiers of the groups in which this
+	// user is a lead or PM, so the UI can scope its search view to them. Empty when the
+	// user holds no such role.
+	LeadGroupMembership []string `json:"lead_group_membership,omitempty"`
 }
 
 // ChangeUserPasswordRequest represents a password change request

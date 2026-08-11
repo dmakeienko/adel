@@ -5,6 +5,7 @@ import { NotificationBanner } from './components/NotificationBanner';
 import { LoginPage } from './pages/LoginPage';
 import { UserPage } from './pages/UserPage';
 import { GroupPage } from './pages/GroupPage';
+import { TeamPage } from './pages/TeamPage';
 import { ChangePasswordPage } from './pages/ChangePasswordPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -46,6 +47,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <UserPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/team"
+        element={
+          <ProtectedRoute>
+            <TeamPage />
           </ProtectedRoute>
         }
       />

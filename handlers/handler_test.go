@@ -23,6 +23,7 @@ import (
 // Fixture values shared by handler tests.
 const (
 	testUsername      = "testuser"
+	testEngLeadDN     = "CN=engineering-lead,OU=Groups,DC=example,DC=com"
 	testEmployeesDN   = "CN=Employees,OU=Groups,DC=example,DC=com"
 	testAdminsCN      = "Admins"
 	testMemberCN      = "Ann Lee"
@@ -319,6 +320,174 @@ func TestSearchForbiddenOutsideAllowedGroups(t *testing.T) {
 	}
 	if response.Success || response.Error == "" {
 		t.Errorf("response = %+v, want unsuccessful response with an error", response)
+	}
+}
+
+// leadConfig returns a config using the shipped lead/PM defaults, with search
+// restricted so the lead grant is the only way in.
+func leadConfig() *config.Config {
+	return &config.Config{
+		AD: config.ADConfig{
+			SearchAllowedGroups: []string{"Helpdesk"},
+			LeadGroupSuffixes:   []string{"-lead", "-pm"},
+			LeadGroupWildcard:   "-*",
+		},
+	}
+}
+
+// TestGroupMembershipHidesOutOfScopeUser is the core guarantee for user lookups: a lead
+// asking about someone outside their teams gets "not found" rather than that user's data.
+func TestGroupMembershipHidesOutOfScopeUser(t *testing.T) {
+	h := NewHandler(leadConfig(), nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/groups/membership/outsider", nil)
+	req = mux.SetURLVars(req, map[string]string{"username": "outsider"})
+	sess := &session.Session{
+		Username: testUsername,
+		MemberOf: []string{testEngLeadDN},
+	}
+	ctx := context.WithValue(req.Context(), middleware.SessionContextKey, sess)
+	rr := httptest.NewRecorder()
+
+	h.GroupMembership(rr, req.WithContext(ctx))
+
+	// A lead is not denied outright (that would be 403); the lookup proceeds and fails
+	// closed on the nil connection. What must never happen is a 200 exposing the target.
+	if rr.Code == http.StatusOK {
+		t.Error("an out-of-scope user lookup must not return data")
+	}
+}
+
+// TestSharesLeadScope covers the subordinate test used to gate user lookups.
+func TestSharesLeadScope(t *testing.T) {
+	h := NewHandler(leadConfig(), nil)
+	sess := &session.Session{
+		Username: testUsername,
+		MemberOf: []string{testEngLeadDN},
+	}
+
+	subordinate := []string{"CN=engineering-devs,OU=Groups,DC=example,DC=com"}
+	if !h.sharesLeadScope(sess, subordinate) {
+		t.Error("a member of engineering-devs should be in an engineering lead's scope")
+	}
+
+	outsider := []string{"CN=finance-team,OU=Groups,DC=example,DC=com"}
+	if h.sharesLeadScope(sess, outsider) {
+		t.Error("a member of finance-team should be outside an engineering lead's scope")
+	}
+
+	if h.sharesLeadScope(sess, []string{"not a dn"}) {
+		t.Error("a malformed DN should not grant scope")
+	}
+}
+
+// TestFilterToLeadScope checks that out-of-scope memberships are withheld.
+func TestFilterToLeadScope(t *testing.T) {
+	h := NewHandler(leadConfig(), nil)
+	sess := &session.Session{
+		Username: testUsername,
+		MemberOf: []string{testEngLeadDN},
+	}
+
+	got := h.filterToLeadScope(sess, []string{
+		"CN=engineering-devs,OU=Groups,DC=example,DC=com",
+		"CN=finance-team,OU=Groups,DC=example,DC=com",
+		"CN=engineering,OU=Groups,DC=example,DC=com",
+	})
+
+	if len(got) != 2 {
+		t.Fatalf("filterToLeadScope() = %v, want 2 in-scope groups", got)
+	}
+	for _, dn := range got {
+		if strings.Contains(dn, "finance") {
+			t.Errorf("filterToLeadScope() leaked an out-of-scope group: %q", dn)
+		}
+	}
+}
+
+func TestTeamRequiresSession(t *testing.T) {
+	h := NewHandler(leadConfig(), nil)
+
+	rr := httptest.NewRecorder()
+	h.Team(rr, httptest.NewRequest(http.MethodGet, "/api/v1/team", nil))
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusUnauthorized)
+	}
+}
+
+// TestTeamEmptyForNonLead confirms the endpoint is inert for a user with no role: it
+// returns an empty team rather than falling through to a directory listing.
+func TestTeamEmptyForNonLead(t *testing.T) {
+	h := NewHandler(leadConfig(), nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/team", nil)
+	sess := &session.Session{Username: testUsername, MemberOf: []string{testEmployeesDN}}
+	ctx := context.WithValue(req.Context(), middleware.SessionContextKey, sess)
+	rr := httptest.NewRecorder()
+
+	h.Team(rr, req.WithContext(ctx))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+	var resp models.TeamResponse
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if !resp.Success {
+		t.Error("response should succeed with an empty team")
+	}
+	if len(resp.Groups) != 0 || resp.MemberCount != 0 {
+		t.Errorf("non-lead team = %+v, want empty", resp)
+	}
+}
+
+// TestSearchDeniedForPlainMember confirms non-leads outside the allow-list stay denied.
+func TestSearchDeniedForPlainMember(t *testing.T) {
+	h := NewHandler(leadConfig(), nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/search?query=user", nil)
+	sess := &session.Session{Username: testUsername, MemberOf: []string{testEmployeesDN}}
+	ctx := context.WithValue(req.Context(), middleware.SessionContextKey, sess)
+	rr := httptest.NewRecorder()
+
+	h.Search(rr, req.WithContext(ctx))
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusForbidden)
+	}
+}
+
+func TestGroupMembershipRequiresSession(t *testing.T) {
+	h := NewHandler(leadConfig(), nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/groups/membership", nil)
+	rr := httptest.NewRecorder()
+
+	h.GroupMembership(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestGroupMembershipForbidsLookupOfOthers(t *testing.T) {
+	h := NewHandler(leadConfig(), nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/groups/membership/someone", nil)
+	req = mux.SetURLVars(req, map[string]string{"username": "someone"})
+	sess := &session.Session{
+		Username: testUsername,
+		MemberOf: []string{testEmployeesDN},
+	}
+	ctx := context.WithValue(req.Context(), middleware.SessionContextKey, sess)
+	rr := httptest.NewRecorder()
+
+	h.GroupMembership(rr, req.WithContext(ctx))
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusForbidden)
 	}
 }
 
