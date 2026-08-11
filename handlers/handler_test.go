@@ -450,7 +450,7 @@ func TestResolveGroupsRequiresSession(t *testing.T) {
 }
 
 func TestNormalizeDNs(t *testing.T) {
-	valid := "CN=Admins,OU=Groups,DC=example,DC=com"
+	valid := "CN=Admins,OU=Groups,DC=example,DC=com" //nolint:goconst // test fixture data
 	other := "CN=Staff,OU=Groups,DC=example,DC=com"
 
 	tests := []struct {
@@ -541,7 +541,7 @@ func TestEntriesToGroupsProducesDirectGroups(t *testing.T) {
 		DN: "CN=Admins,OU=Groups,DC=example,DC=com",
 		Attributes: []*ldap.EntryAttribute{
 			{Name: "cn", Values: []string{"Admins"}},
-			{Name: "description", Values: []string{"Administrators"}},
+			{Name: "description", Values: []string{"Administrators"}}, //nolint:goconst // test fixture data
 		},
 	}
 

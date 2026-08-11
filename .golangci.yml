@@ -24,7 +24,7 @@ linters:
       - third_party$
       - builtin$
       - examples$
-      - web/node_modules$
+      - ^web/node_modules/
   settings:
     nolintlint:
       # Disable to ensure that all nolint directives actually have an effect.
@@ -49,4 +49,4 @@ formatters:
       - third_party$
       - builtin$
       - examples$
-      - web/node_modules$
+      - ^web/node_modules/
