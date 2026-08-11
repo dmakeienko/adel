@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.4.0](https://github.com/dmakeienko/adel/compare/v1.3.6...v1.4.0) (2026-08-11)
+
+
+### Features
+
+* get nested groups and show them optinally in UI ([67f0b08](https://github.com/dmakeienko/adel/commit/67f0b08a6b9f6e979a2ef7258837e8085c7a04dd))
+* limit groups on login ([48502ee](https://github.com/dmakeienko/adel/commit/48502ee5821e66811c0dc3e85303021583e3e6d3))
+* limit groups on login ([d43151d](https://github.com/dmakeienko/adel/commit/d43151d6aa87789b28bdb35c36fcef0e0e3af31e))
+* limit groups who can use search ([468a0e8](https://github.com/dmakeienko/adel/commit/468a0e88af13cb204592473a6025ffd2f3ab6c4b))
+* **ui:** add Cancel button to GroupMembership table ([fb91215](https://github.com/dmakeienko/adel/commit/fb912155036364345ce3ad8cf3941d7dd1f23664))
+
+
+### CI/CD
+
+* add caching for docker image during build ([9e10e17](https://github.com/dmakeienko/adel/commit/9e10e17b8b84956c92ec6c5415a003419f124382))
+* fix lint ([322eb69](https://github.com/dmakeienko/adel/commit/322eb69b5700518944f93a82f07e606f2902f556))
+* gate release behind ci ([b3e6303](https://github.com/dmakeienko/adel/commit/b3e6303e1e5346eee8fab7292e88723bf5d1052b))
+* **lint:** ignore few lint findings ([7a44466](https://github.com/dmakeienko/adel/commit/7a4446626537f2852e166511cad52adddb67838c))
+
+
+### Dependencies
+
+* **deps:** bump the npm_and_yarn group across 1 directory with 2 updates ([68282ad](https://github.com/dmakeienko/adel/commit/68282ad266d5cd50d7f17da0757f0d7e43e17339))
+
 ## [1.3.6](https://github.com/dmakeienko/adel/compare/v1.3.5...v1.3.6) (2026-08-10)
 
 
