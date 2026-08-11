@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.6.0](https://github.com/dmakeienko/adel/compare/v1.5.0...v1.6.0) (2026-08-11)
+
+
+### Features
+
+* leadership observability ([4b67e0e](https://github.com/dmakeienko/adel/commit/4b67e0e5b7d2e826688661e34f5191b7829306f8))
+* leadership observability ([d7b7178](https://github.com/dmakeienko/adel/commit/d7b7178a375ce37f7ede3fb3ff259ac9fef191ec))
+
+
+### Bug Fixes
+
+* build version was not passing to docker image ([c3e36d8](https://github.com/dmakeienko/adel/commit/c3e36d8ff95c400f6cbe648140f4f9d55cf819cc))
+
+
+### CI/CD
+
+* build ui before running codeql ([b93a01d](https://github.com/dmakeienko/adel/commit/b93a01ded26ed2973b104e45daf79e4168e1f43b))
+* extract codeql in a proper file ([04da4c3](https://github.com/dmakeienko/adel/commit/04da4c368446fd2f75100fda2a498802f7e0c207))
+
+
+### Dependencies
+
+* **helm:** update helm chart with missing values ([cdc28a5](https://github.com/dmakeienko/adel/commit/cdc28a5d175183c0696caa8338bff9cb1c0d5ac3))
+
 ## [1.5.0](https://github.com/dmakeienko/adel/compare/v1.4.0...v1.5.0) (2026-08-11)
 
 
