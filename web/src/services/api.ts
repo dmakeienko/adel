@@ -112,10 +112,12 @@ class ApiService {
 
   // Resolves a known set of group DNs to full group records. Used instead of listing
   // every group in the directory just to look up names and descriptions.
-  async resolveGroups(dns: string[]): Promise<GroupsResponse> {
+  // With nested=true the response also includes groups reached indirectly, through
+  // the direct groups' own memberships.
+  async resolveGroups(dns: string[], nested = false): Promise<GroupsResponse> {
     const response = await this.client.post<GroupsResponse>(
       '/api/v1/groups/resolve',
-      { dns }
+      { dns, nested }
     );
     return response.data;
   }

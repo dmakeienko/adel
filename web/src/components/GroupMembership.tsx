@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Search } from 'lucide-react';
 import {
   useReactTable,
@@ -38,10 +38,17 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [pendingChanges, setPendingChanges] = useState<Map<string, 'add' | 'remove'>>(new Map());
+  // Direct-only by default: inherited groups are informational and can bulk out the
+  // table considerably on users nested deep in the hierarchy.
+  const [showNested, setShowNested] = useState(false);
   const { showNotification } = useNotification();
   const { canSearch } = useAuth();
   const searchRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // Mirrors `groups` so the debounced search can read the current rows without
+  // taking a dependency on an array that is rebuilt on every load.
+  const groupsRef = useRef<UserGroupStatus[]>([]);
+  groupsRef.current = groups;
 
   const extractCNFromDN = (dn: string): string => {
     const match = dn.match(/^CN=([^,]+)/i);
@@ -59,7 +66,9 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
     }
 
     try {
-      const response = await api.resolveGroups(memberOf);
+      // nested=true so groups inherited through another group come back too; the
+      // user object's memberOf only lists direct memberships.
+      const response = await api.resolveGroups(memberOf, true);
       if (response.success && response.groups) {
         setAllGroups(response.groups);
       }
@@ -74,7 +83,7 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
       return;
     }
 
-    const userGroups: UserGroupStatus[] = user.memberOf.map((groupDN) => {
+    const directGroups: UserGroupStatus[] = user.memberOf.map((groupDN) => {
       const groupName = extractCNFromDN(groupDN);
       const foundGroup = allGroups.find(
         (g) => g.cn === groupName || g.distinguishedName === groupDN
@@ -92,7 +101,24 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
       };
     });
 
-    setGroups(userGroups.sort((a, b) => a.group.cn.localeCompare(b.group.cn)));
+    // Groups the backend reached by walking the nesting chain. They are not on the
+    // user object, so they only appear when the resolve call succeeded.
+    const directDNs = new Set(
+      user.memberOf.map((dn) => dn.toLowerCase())
+    );
+    const nestedGroups: UserGroupStatus[] = allGroups
+      .filter((g) => g.nested && !directDNs.has(g.dn.toLowerCase()))
+      .map((g) => ({
+        group: g,
+        isMember: true,
+        membershipType: 'nested' as const,
+      }));
+
+    setGroups(
+      [...directGroups, ...nestedGroups].sort((a, b) =>
+        a.group.cn.localeCompare(b.group.cn)
+      )
+    );
   }, [user.memberOf, allGroups]);
 
   useEffect(() => {
@@ -119,7 +145,9 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
     if (!canSearch || searchQuery.length < 2) {
-      setSearchResults([]);
+      // Replacing with a fresh [] on every run would re-render, which re-creates the
+      // `groups` array this effect depends on, looping forever. Only clear if needed.
+      setSearchResults((prev) => (prev.length === 0 ? prev : []));
       return;
     }
 
@@ -128,7 +156,10 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
       try {
         const response = await api.searchGroups(searchQuery);
         if (response.success && response.groups) {
-          const existingDNs = new Set(groups.map((g) => g.group.dn));
+          // Read the current rows from the ref rather than depending on `groups`:
+          // that array is rebuilt on every load, and depending on it here restarts
+          // the search whenever the table re-renders.
+          const existingDNs = new Set(groupsRef.current.map((g) => g.group.dn));
           setSearchResults(response.groups.filter((g) => !existingDNs.has(g.dn)));
           setIsSearchOpen(true);
         }
@@ -142,7 +173,7 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [searchQuery, groups, canSearch]);
+  }, [searchQuery, canSearch]);
 
   const addGroupToTable = (group: Group) => {
     const newGroupStatus: UserGroupStatus = { group, isMember: true, membershipType: 'direct' };
@@ -157,7 +188,8 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
     setIsSearchOpen(false);
   };
 
-  const toggleMembership = (groupCN: string, currentStatus: boolean) => {
+  // Stable identity so the memoised columns below are not rebuilt on every render.
+  const toggleMembership = useCallback((groupCN: string, currentStatus: boolean) => {
     setGroups((prev) =>
       prev.map((g) => g.group.cn === groupCN ? { ...g, isMember: !currentStatus } : g)
     );
@@ -175,7 +207,7 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
       }
       return next;
     });
-  };
+  }, [user.memberOf]);
 
   const handleSave = async () => {
     if (pendingChanges.size === 0) {
@@ -213,7 +245,8 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
     if (onUpdate) onUpdate();
   };
 
-  const columns: ColumnDef<UserGroupStatus>[] = [
+  // Also memoised: useReactTable compares `columns` by identity as well.
+  const columns: ColumnDef<UserGroupStatus>[] = useMemo(() => [
     {
       accessorKey: 'group.cn',
       header: 'Name',
@@ -240,7 +273,12 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
             className={
               row.original.membershipType === 'direct'
                 ? 'bg-primary/10 text-primary border-primary/30'
-                : 'bg-muted text-muted-foreground border-border'
+                : 'bg-amber-600/10 text-amber-700 border-amber-600/40 dark:text-amber-500'
+            }
+            title={
+              row.original.membershipType === 'nested'
+                ? 'Inherited through another group'
+                : undefined
             }
           >
             {row.original.membershipType}
@@ -251,21 +289,46 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
     {
       accessorKey: 'isMember',
       header: () => <div className="text-center">Status</div>,
-      cell: ({ row }) => (
-        <div className="flex justify-center">
-          <Checkbox
-            checked={row.original.isMember}
-            onCheckedChange={() =>
-              toggleMembership(row.original.group.cn, row.original.isMember)
-            }
-          />
-        </div>
-      ),
+      cell: ({ row }) => {
+        // Inherited membership lives on the parent group, not the user, so it cannot
+        // be revoked here — removing the user from this group would be a no-op.
+        const isNested = row.original.membershipType === 'nested';
+        return (
+          <div className="flex justify-center">
+            <Checkbox
+              checked={row.original.isMember}
+              disabled={isNested}
+              title={
+                isNested
+                  ? 'Inherited membership — change it on the parent group'
+                  : undefined
+              }
+              onCheckedChange={() =>
+                toggleMembership(row.original.group.cn, row.original.isMember)
+              }
+            />
+          </div>
+        );
+      },
     },
-  ];
+  ], [toggleMembership]);
+
+  // groups always holds both kinds; the toggle only narrows what is rendered, so
+  // flipping it is instant and the search dedupe below still sees nested memberships.
+  //
+  // Memoised because useReactTable treats `data` by identity: handing it a freshly
+  // filtered array on every render makes it rebuild the row model and re-render,
+  // which loops until the tab hangs.
+  const { visibleGroups, nestedCount } = useMemo(() => {
+    const direct = groups.filter((g) => g.membershipType === 'direct');
+    return {
+      visibleGroups: showNested ? groups : direct,
+      nestedCount: groups.length - direct.length,
+    };
+  }, [groups, showNested]);
 
   const table = useReactTable({
-    data: groups,
+    data: visibleGroups,
     columns,
     getCoreRowModel: getCoreRowModel(),
   });
@@ -273,7 +336,36 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-lg">Group Membership</CardTitle>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <CardTitle className="text-lg">Group Membership</CardTitle>
+
+          {/* Scope toggle. Rendered only when there is something to reveal, so users
+              with no inherited memberships are not offered an inert control. */}
+          {nestedCount > 0 && (
+            <div className="inline-flex rounded-md border border-border p-0.5" role="group">
+              <Button
+                type="button"
+                size="sm"
+                variant={showNested ? 'ghost' : 'secondary'}
+                aria-pressed={!showNested}
+                className="h-7 px-3 text-xs"
+                onClick={() => setShowNested(false)}
+              >
+                Direct only
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={showNested ? 'secondary' : 'ghost'}
+                aria-pressed={showNested}
+                className="h-7 px-3 text-xs"
+                onClick={() => setShowNested(true)}
+              >
+                All ({groups.length})
+              </Button>
+            </div>
+          )}
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Group search — hidden for users without search permission */}
@@ -331,7 +423,9 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
               {table.getRowModel().rows.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={columns.length} className="text-center text-muted-foreground py-8">
-                    No group memberships found
+                    {nestedCount > 0
+                      ? 'No direct group memberships found — switch to All to see inherited groups'
+                      : 'No group memberships found'}
                   </TableCell>
                 </TableRow>
               ) : (

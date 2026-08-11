@@ -385,8 +385,111 @@ func (h *Handler) ResolveGroups(w http.ResponseWriter, r *http.Request) {
 	// Keep only well-formed, non-duplicate DNs. Malformed input is skipped rather than
 	// rejected outright so one bad memberOf value cannot break the whole page.
 	seen := make(map[string]struct{}, len(req.DNs))
-	clauses := make([]string, 0, len(req.DNs))
-	for _, dn := range req.DNs {
+	dns := normalizeDNs(req.DNs, seen, maxResolveDNs)
+	if len(dns) < countNonEmpty(req.DNs) {
+		slog.Debug("Some DNs were skipped or truncated in group resolve request",
+			"username", sess.Username, "requested", len(req.DNs), "accepted", len(dns))
+	}
+
+	if len(dns) == 0 {
+		writeJSON(w, http.StatusOK, models.GroupsResponse{
+			Success: true,
+			Groups:  []*models.Group{},
+			Count:   0,
+		})
+		return
+	}
+
+	groups, err := h.resolveGroupDNs(sess.Conn, dns, groupAttributes)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, models.GroupsResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to resolve groups: %v", err),
+		})
+		return
+	}
+
+	if req.Nested {
+		groups = h.appendNestedGroups(sess, groups, seen)
+	}
+
+	writeJSON(w, http.StatusOK, models.GroupsResponse{
+		Success: true,
+		Groups:  groups,
+		Count:   len(groups),
+	})
+}
+
+// appendNestedGroups adds the groups the session's user belongs to indirectly. The
+// directory computes the transitive closure in a single search via matching-rule-in-chain,
+// so there is no hierarchy to walk here: anything it returns that was not among the
+// directly requested DNs is an inherited membership.
+//
+// Failures are not fatal — nested groups are supplementary, so a directory that does not
+// support the matching rule degrades to the direct list rather than failing the request.
+func (h *Handler) appendNestedGroups(sess *session.Session, direct []*models.Group, seen map[string]struct{}) []*models.Group {
+	searchReq := ldap.NewSearchRequest(
+		h.config.AD.GetSearchBaseDN(),
+		ldap.ScopeWholeSubtree,
+		ldap.NeverDerefAliases,
+		h.config.AD.MaxSearchResults, 0, false,
+		session.NestedGroupFilter(h.config.AD.GroupFilter, sess.UserDN),
+		groupAttributes,
+		nil,
+	)
+
+	sr, err := sess.Conn.Search(searchReq)
+	if err != nil {
+		slog.Warn("Nested group search failed, returning direct memberships only",
+			"username", sess.Username, "error", err)
+		return direct
+	}
+
+	all := direct
+	for _, g := range h.entriesToGroups(sr.Entries) {
+		// seen holds the directly requested DNs, so whatever remains is inherited.
+		if _, isDirect := seen[strings.ToLower(g.DN)]; isDirect {
+			continue
+		}
+		g.Nested = true
+		all = append(all, g)
+	}
+	return all
+}
+
+// resolveGroupDNs looks up the given DNs in a single search and maps them to group
+// models. Callers must pass DNs already validated by normalizeDNs.
+func (h *Handler) resolveGroupDNs(conn *ldap.Conn, dns []string, attrs []string) ([]*models.Group, error) {
+	clauses := make([]string, 0, len(dns))
+	for _, dn := range dns {
+		clauses = append(clauses, fmt.Sprintf("(distinguishedName=%s)", ldap.EscapeFilter(dn)))
+	}
+
+	filter := fmt.Sprintf("(&%s(|%s))", h.config.AD.GroupFilter, strings.Join(clauses, ""))
+	searchReq := ldap.NewSearchRequest(
+		h.config.AD.GetSearchBaseDN(),
+		ldap.ScopeWholeSubtree,
+		ldap.NeverDerefAliases,
+		len(clauses), 0, false,
+		filter,
+		attrs,
+		nil,
+	)
+
+	sr, err := conn.Search(searchReq)
+	if err != nil {
+		return nil, err
+	}
+
+	return h.entriesToGroups(sr.Entries), nil
+}
+
+// normalizeDNs trims, validates and de-duplicates DNs against seen, recording each
+// accepted DN there. Malformed entries are skipped rather than failing the request,
+// so one bad memberOf value cannot break a whole lookup. At most limit are returned.
+func normalizeDNs(dns []string, seen map[string]struct{}, limit int) []string {
+	out := make([]string, 0, len(dns))
+	for _, dn := range dns {
 		dn = strings.TrimSpace(dn)
 		if dn == "" {
 			continue
@@ -400,50 +503,24 @@ func (h *Handler) ResolveGroups(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		seen[key] = struct{}{}
-		clauses = append(clauses, fmt.Sprintf("(distinguishedName=%s)", ldap.EscapeFilter(dn)))
-		if len(clauses) >= maxResolveDNs {
-			slog.Warn("Group resolve request truncated at cap",
-				"username", sess.Username, "requested", len(req.DNs), "cap", maxResolveDNs)
+		out = append(out, dn)
+		if len(out) >= limit {
 			break
 		}
 	}
+	return out
+}
 
-	if len(clauses) == 0 {
-		writeJSON(w, http.StatusOK, models.GroupsResponse{
-			Success: true,
-			Groups:  []*models.Group{},
-			Count:   0,
-		})
-		return
+// countNonEmpty reports how many entries are not blank, for logging how much of a
+// request survived normalization.
+func countNonEmpty(values []string) int {
+	n := 0
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			n++
+		}
 	}
-
-	filter := fmt.Sprintf("(&%s(|%s))", h.config.AD.GroupFilter, strings.Join(clauses, ""))
-	searchReq := ldap.NewSearchRequest(
-		h.config.AD.GetSearchBaseDN(),
-		ldap.ScopeWholeSubtree,
-		ldap.NeverDerefAliases,
-		len(clauses), 0, false,
-		filter,
-		groupAttributes,
-		nil,
-	)
-
-	sr, err := sess.Conn.Search(searchReq)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, models.GroupsResponse{
-			Success: false,
-			Error:   fmt.Sprintf("Failed to resolve groups: %v", err),
-		})
-		return
-	}
-
-	groups := h.entriesToGroups(sr.Entries)
-
-	writeJSON(w, http.StatusOK, models.GroupsResponse{
-		Success: true,
-		Groups:  groups,
-		Count:   len(groups),
-	})
+	return n
 }
 
 // AddUserToGroup adds a user to a group

@@ -11,6 +11,7 @@ Active Directory Engagement Layer - A Go-based HTTPS server that provides REST A
 - **Active Directory Integration**: Connect to AD/LDAP servers with configurable settings
 - **User Management**: Get and edit user attributes
 - **Group Management**: List groups, add/remove users from groups
+- **Nested Group Resolution**: Optionally expand a user's indirect memberships, inherited through groups that are themselves members of other groups
 - **LDAP/LDAPS Support**: Connect via LDAP (389) or LDAPS (636) with optional CA certificates
 - **Session Management**: Automatic session cleanup and secure session handling
 - **Middleware**: CORS, logging, recovery, and security headers
@@ -182,6 +183,59 @@ curl -k -X POST https://localhost:8080/api/v1/groups/resolve \
   -H "X-Session-ID: your-session-id" \
   -d '{"dns":["CN=Developers,OU=Groups,DC=example,DC=com"]}'
 ```
+
+##### Nested Groups
+
+A user's `memberOf` lists only *direct* memberships. Pass `"nested": true` to also walk
+each resolved group's own `memberOf`, returning the groups the user belongs to
+indirectly:
+
+```bash
+curl -k -X POST https://localhost:8080/api/v1/groups/resolve \
+  -H "Content-Type: application/json" \
+  -H "X-Session-ID: your-session-id" \
+  -d '{"dns":["CN=Developers,OU=Groups,DC=example,DC=com"],"nested":true}'
+```
+
+Inherited groups are flagged with `"nested": true`; directly requested ones omit the
+field:
+
+```json
+{
+  "success": true,
+  "count": 2,
+  "groups": [
+    {
+      "dn": "CN=Developers,OU=Groups,DC=example,DC=com",
+      "cn": "Developers",
+      "sAMAccountName": "Developers"
+    },
+    {
+      "dn": "CN=All Staff,OU=Groups,DC=example,DC=com",
+      "cn": "All Staff",
+      "sAMAccountName": "All Staff",
+      "nested": true
+    }
+  ]
+}
+```
+
+The transitive set is computed by the directory in a single extra search, using the same
+`LDAP_MATCHING_RULE_IN_CHAIN` extension as the login-time allow-list check (see
+[Search Scope and Exclusions](#search-scope-and-exclusions)). There is no client-side
+hierarchy walk, so nesting depth and membership cycles are the server's problem, not
+ours. Results are capped by `AD_MAX_SEARCH_RESULTS`.
+
+The expansion resolves memberships for the **session's own user**, so `nested: true` is
+only meaningful when the supplied DNs are that user's groups. Directories that do not
+implement the matching rule return nothing extra, and the response degrades to the
+directly requested groups rather than failing.
+
+In the web UI, the group membership table requests nested groups and labels them with a
+`nested` badge. A **Direct only / All** toggle controls whether they are listed,
+defaulting to direct only. Inherited memberships render with a disabled checkbox: they
+live on the parent group, so removing the user from the nested group would have no
+effect — the parent membership has to be changed instead.
 
 #### Add User to Group
 ```bash

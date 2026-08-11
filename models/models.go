@@ -44,6 +44,11 @@ type Group struct {
 	Members           []string `json:"members,omitempty"`
 	MemberOf          []string `json:"memberOf,omitempty"`
 	DistinguishedName string   `json:"distinguishedName,omitempty"`
+
+	// Nested reports that the user is not a direct member of this group: membership
+	// comes from a group they are in being a member of it. Set by ResolveGroups when
+	// expansion is requested; always false for directly requested DNs.
+	Nested bool `json:"nested,omitempty"`
 }
 
 // LoginRequest represents the login request body
@@ -134,6 +139,10 @@ type UserResponse struct {
 // can enrich known memberships without listing the directory.
 type ResolveGroupsRequest struct {
 	DNs []string `json:"dns"`
+	// Nested requests transitive expansion: each resolved group's own memberOf is
+	// followed, so the response also contains groups the user belongs to indirectly.
+	// Off by default to keep the plain lookup cheap.
+	Nested bool `json:"nested,omitempty"`
 }
 
 // GroupsResponse represents groups list response

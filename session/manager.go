@@ -285,6 +285,16 @@ func (m *Manager) findUser(conn *ldap.Conn, username string) (string, []string, 
 	return dn, sr.Entries[0].GetAttributeValues("memberOf"), nil
 }
 
+// NestedGroupFilter builds a filter matching every group that contains userDN at any
+// depth, using the AD matching-rule-in-chain extension. Exported so handlers can run
+// the same one-query expansion instead of walking the hierarchy themselves.
+//
+// groupFilter is the configured group object filter, ANDed with the membership test.
+func NestedGroupFilter(groupFilter, userDN string) string {
+	return fmt.Sprintf("(&%s(member:%s:=%s))",
+		groupFilter, matchingRuleInChain, ldap.EscapeFilter(userDN))
+}
+
 // findNestedGroups returns the DNs of every group the user belongs to, including
 // groups reached indirectly through nested group membership. It relies on the AD
 // matching-rule-in-chain extension; directories that do not implement it return no
@@ -295,8 +305,7 @@ func (m *Manager) findNestedGroups(conn *ldap.Conn, userDN string) ([]string, er
 		ldap.ScopeWholeSubtree,
 		ldap.NeverDerefAliases,
 		0, 0, false,
-		fmt.Sprintf("(&%s(member:%s:=%s))",
-			m.cfg.AD.GroupFilter, matchingRuleInChain, ldap.EscapeFilter(userDN)),
+		NestedGroupFilter(m.cfg.AD.GroupFilter, userDN),
 		[]string{"dn"},
 		nil,
 	)

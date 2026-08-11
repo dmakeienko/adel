@@ -14,6 +14,8 @@ import (
 	"adel/middleware"
 	"adel/models"
 	"adel/session"
+
+	"github.com/go-ldap/ldap/v3"
 )
 
 // testUsername is the session username shared by handler tests.
@@ -444,5 +446,125 @@ func TestResolveGroupsRequiresSession(t *testing.T) {
 
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("status = %d, want %d", rr.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestNormalizeDNs(t *testing.T) {
+	valid := "CN=Admins,OU=Groups,DC=example,DC=com"
+	other := "CN=Staff,OU=Groups,DC=example,DC=com"
+
+	tests := []struct {
+		name  string
+		input []string
+		limit int
+		want  []string
+	}{
+		{
+			name:  "drops blank and malformed entries",
+			input: []string{"", "   ", "not-a-valid-dn", valid},
+			limit: maxResolveDNs,
+			want:  []string{valid},
+		},
+		{
+			name:  "trims surrounding whitespace",
+			input: []string{"  " + valid + "  "},
+			limit: maxResolveDNs,
+			want:  []string{valid},
+		},
+		{
+			name:  "de-duplicates case-insensitively",
+			input: []string{valid, strings.ToUpper(valid), other},
+			limit: maxResolveDNs,
+			want:  []string{valid, other},
+		},
+		{
+			name:  "stops at the limit",
+			input: []string{valid, other},
+			limit: 1,
+			want:  []string{valid},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeDNs(tt.input, make(map[string]struct{}), tt.limit)
+			if len(got) != len(tt.want) {
+				t.Fatalf("normalizeDNs() = %v, want %v", got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("normalizeDNs()[%d] = %q, want %q", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+// A DN already present in seen must be rejected. This is what stops nested-group
+// expansion from revisiting a group and looping forever on a membership cycle.
+func TestNormalizeDNsSkipsAlreadySeen(t *testing.T) {
+	dn := "CN=Admins,OU=Groups,DC=example,DC=com"
+	seen := map[string]struct{}{strings.ToLower(dn): {}}
+
+	got := normalizeDNs([]string{dn}, seen, maxResolveDNs)
+
+	if len(got) != 0 {
+		t.Errorf("normalizeDNs() = %v, want empty for an already-seen DN", got)
+	}
+}
+
+// Accepted DNs must be recorded in seen so the next hop of the expansion skips them.
+func TestNormalizeDNsRecordsAcceptedDNs(t *testing.T) {
+	dn := "CN=Admins,OU=Groups,DC=example,DC=com"
+	seen := make(map[string]struct{})
+
+	normalizeDNs([]string{dn}, seen, maxResolveDNs)
+
+	if _, ok := seen[strings.ToLower(dn)]; !ok {
+		t.Errorf("seen = %v, want it to contain the accepted DN", seen)
+	}
+}
+
+func TestCountNonEmpty(t *testing.T) {
+	got := countNonEmpty([]string{"a", "", "   ", "b"})
+	if got != 2 {
+		t.Errorf("countNonEmpty() = %d, want 2", got)
+	}
+}
+
+// Entries map to unmarked direct groups: Nested is applied afterwards, only to the
+// extra entries the matching-rule-in-chain search turns up.
+func TestEntriesToGroupsProducesDirectGroups(t *testing.T) {
+	h := NewHandler(&config.Config{}, nil)
+
+	entry := &ldap.Entry{
+		DN: "CN=Admins,OU=Groups,DC=example,DC=com",
+		Attributes: []*ldap.EntryAttribute{
+			{Name: "cn", Values: []string{"Admins"}},
+			{Name: "description", Values: []string{"Administrators"}},
+		},
+	}
+
+	groups := h.entriesToGroups([]*ldap.Entry{entry})
+
+	if len(groups) != 1 {
+		t.Fatalf("entriesToGroups() returned %d groups, want 1", len(groups))
+	}
+	if groups[0].CN != "Admins" || groups[0].Description != "Administrators" {
+		t.Errorf("group = %+v, want cn=Admins description=Administrators", groups[0])
+	}
+	if groups[0].Nested {
+		t.Error("Nested = true, want false for a directly resolved group")
+	}
+}
+
+// The nested filter must scope to groups and escape the user DN, since it is built
+// from a value that reaches the server verbatim.
+func TestNestedGroupFilter(t *testing.T) {
+	got := session.NestedGroupFilter("(objectClass=group)", "CN=Bob (Admin),DC=example,DC=com")
+
+	const want = "(&(objectClass=group)(member:1.2.840.113556.1.4.1941:=CN=Bob \\28Admin\\29,DC=example,DC=com))"
+	if got != want {
+		t.Errorf("NestedGroupFilter() =\n  %q\nwant\n  %q", got, want)
 	}
 }

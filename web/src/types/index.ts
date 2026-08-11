@@ -38,6 +38,8 @@ export interface Group {
   members?: string[];
   memberOf?: string[];
   distinguishedName?: string;
+  /** Membership comes via another group rather than directly from the user object. */
+  nested?: boolean;
 }
 
 export interface LoginRequest {
