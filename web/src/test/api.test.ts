@@ -98,4 +98,26 @@ describe('ApiService', () => {
       expect(await api.healthCheck()).toBe(false);
     });
   });
+
+  describe('getVersion', () => {
+    it('returns the version reported by the backend', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (api as any).client.get.mockResolvedValueOnce({
+        data: { status: 'healthy', version: '1.4.0' },
+      });
+      expect(await api.getVersion()).toBe('1.4.0');
+    });
+
+    it('returns null when the backend omits a version', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (api as any).client.get.mockResolvedValueOnce({ data: { status: 'healthy' } });
+      expect(await api.getVersion()).toBeNull();
+    });
+
+    it('returns null when request fails', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (api as any).client.get.mockRejectedValueOnce(new Error('timeout'));
+      expect(await api.getVersion()).toBeNull();
+    });
+  });
 });

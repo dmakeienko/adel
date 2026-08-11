@@ -14,6 +14,7 @@ import (
 	"adel/middleware"
 	"adel/models"
 	"adel/session"
+	"adel/version"
 
 	"github.com/go-ldap/ldap/v3"
 )
@@ -167,6 +168,10 @@ func TestHealthHandler(t *testing.T) {
 	}
 	if resp.Environment != "test" {
 		t.Errorf("Environment = %q, want %q", resp.Environment, "test")
+	}
+	// Not compared against a literal: the value is stamped in at build time.
+	if resp.Version != version.Version {
+		t.Errorf("Version = %q, want %q", resp.Version, version.Version)
 	}
 	if resp.ADServer != "test-ad" {
 		t.Errorf("ADServer = %q, want %q", resp.ADServer, "test-ad")

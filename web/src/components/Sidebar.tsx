@@ -1,5 +1,7 @@
+import { useEffect, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { User, Lock, LogOut } from 'lucide-react';
+import api from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
 import { Separator } from '@/components/ui/separator';
@@ -9,6 +11,20 @@ export function Sidebar() {
   const { user, logout, isAuthenticated } = useAuth();
   const { showNotification } = useNotification();
   const navigate = useNavigate();
+  const [version, setVersion] = useState<string | null>(null);
+
+  // Fetched once per mount; /health is public, so this works regardless of session state.
+  useEffect(() => {
+    let cancelled = false;
+    api.getVersion().then((v) => {
+      if (!cancelled) {
+        setVersion(v);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   if (!isAuthenticated || !user) {
     return null;
@@ -86,6 +102,13 @@ export function Sidebar() {
           <span className="text-sidebar-foreground/60 text-xs truncate">{user.mail}</span>
         </div>
       </div>
+
+      {/* Product version */}
+      {version && (
+        <div className="px-4 pt-3 text-left text-xs text-sidebar-foreground/50">
+          ADEL v{version}
+        </div>
+      )}
     </aside>
   );
 }

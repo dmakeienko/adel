@@ -7,6 +7,7 @@ import type {
   APIResponse,
   SearchResponse,
   SessionInfo,
+  HealthResponse,
 } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
@@ -194,10 +195,21 @@ class ApiService {
 
   async healthCheck(): Promise<boolean> {
     try {
-      const response = await this.client.get('/health');
+      const response = await this.client.get<HealthResponse>('/health');
       return response.data.status === 'healthy';
     } catch {
       return false;
+    }
+  }
+
+  // Returns the running server's version, or null if /health is unreachable.
+  // The version is informational only, so callers treat failure as "unknown".
+  async getVersion(): Promise<string | null> {
+    try {
+      const response = await this.client.get<HealthResponse>('/health');
+      return response.data.version || null;
+    } catch {
+      return null;
     }
   }
 }

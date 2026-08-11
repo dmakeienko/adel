@@ -157,6 +157,7 @@ type GroupsResponse struct {
 // HealthResponse represents health check response
 type HealthResponse struct {
 	Status      string    `json:"status"`
+	Version     string    `json:"version"`
 	Environment string    `json:"environment"`
 	Timestamp   time.Time `json:"timestamp"`
 	ADServer    string    `json:"adServer,omitempty"`

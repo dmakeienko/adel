@@ -14,6 +14,7 @@ RUN npm run build
 FROM golang:1.26-alpine AS go-builder
 ARG TARGETOS
 ARG TARGETARCH
+ARG VERSION=dev
 WORKDIR /app
 
 RUN apk add --no-cache git
@@ -26,7 +27,8 @@ COPY . .
 # Replace the placeholder static/dist with the real frontend build
 COPY --from=ui-builder /app/web/dist ./static/dist
 
-RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -o main .
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
+    go build -ldflags "-X adel/version.Version=${VERSION}" -o main .
 
 # Stage 3 — minimal runtime image
 FROM gcr.io/distroless/static:nonroot

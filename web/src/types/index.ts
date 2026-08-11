@@ -76,6 +76,15 @@ export interface GroupsResponse {
   error?: string;
 }
 
+export interface HealthResponse {
+  status: string;
+  version: string;
+  environment: string;
+  timestamp: string;
+  adServer?: string;
+  adPort?: number;
+}
+
 export interface SearchEntry {
   dn: string;
   attributes: Record<string, string[]>;

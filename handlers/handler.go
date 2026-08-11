@@ -15,6 +15,7 @@ import (
 	"adel/middleware"
 	"adel/models"
 	"adel/session"
+	"adel/version"
 
 	"github.com/go-ldap/ldap/v3"
 	"github.com/gorilla/mux"
@@ -59,6 +60,7 @@ func NewHandler(cfg *config.Config, sessionMgr *session.Manager) *Handler {
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 	response := models.HealthResponse{
 		Status:      "healthy",
+		Version:     version.Version,
 		Environment: h.config.Server.Environment,
 		Timestamp:   time.Now(),
 		ADServer:    h.config.AD.Server,

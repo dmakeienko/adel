@@ -5,6 +5,11 @@ APP_NAME=adel
 BUILD_DIR=bin
 WEB_DIR=web
 
+# Version stamped into the binary and surfaced in the UI. Defaults to the
+# released version tracked by release-please; override with VERSION=x.y.z.
+VERSION?=$(shell sed -n 's/.*"\.": "\(.*\)".*/\1/p' .release-please-manifest.json)
+LDFLAGS=-X adel/version.Version=$(VERSION)
+
 # Build the React frontend and copy assets into static/dist/
 build-ui:
 	cd $(WEB_DIR) && npm ci && npm run build
@@ -13,7 +18,7 @@ build-ui:
 
 # Build the Go binary (embeds whatever is in static/dist/)
 build:
-	go build -o $(BUILD_DIR)/$(APP_NAME) .
+	go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(APP_NAME) .
 
 # Full build: frontend then backend
 build-all: build-ui build
@@ -82,7 +87,7 @@ update:
 
 # Build Docker image
 docker-build:
-	docker build -t $(APP_NAME):latest .
+	docker build --build-arg VERSION=$(VERSION) -t $(APP_NAME):latest .
 
 # Run Docker container
 docker-run:
