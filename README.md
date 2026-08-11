@@ -238,6 +238,144 @@ defaulting to direct only. Inherited memberships render with a disabled checkbox
 live on the parent group, so removing the user from the nested group would have no
 effect — the parent membership has to be changed instead.
 
+#### Group Membership and Leadership Roles
+
+Returns every group a user belongs to, together with the groups in which they hold a
+lead or PM role. Defaults to the calling user; passing a username looks up someone else
+and is gated like the other browsing endpoints.
+
+```bash
+curl -k https://localhost:8080/api/v1/groups/membership \
+  -H "X-Session-ID: your-session-id"
+
+curl -k https://localhost:8080/api/v1/groups/membership/jdoe \
+  -H "X-Session-ID: your-session-id"
+```
+
+A group whose CN ends in one of `AD_LEAD_GROUP_SUFFIXES` marks its members as leads of
+the corresponding base group. The suffix is replaced by `AD_LEAD_GROUP_WILDCARD` to form
+the identifier, so with `AD_LEAD_GROUP_SUFFIXES=-lead,-pm` both `engineering-lead` and
+`engineering-pm` collapse to the single entry `CN=engineering-*`:
+
+```json
+{
+  "success": true,
+  "group_details": [
+    {
+      "dn": "CN=engineering-lead,OU=Groups,DC=example,DC=com",
+      "cn": "engineering-lead",
+      "sAMAccountName": "engineering-lead"
+    },
+    {
+      "dn": "CN=Employees,OU=Groups,DC=example,DC=com",
+      "cn": "Employees",
+      "sAMAccountName": "Employees"
+    }
+  ],
+  "lead_group_membership": ["CN=engineering-*"]
+}
+```
+
+`group_details` holds every membership, including groups that carry no role; only the
+role-bearing ones appear in `lead_group_membership`. Matching is case-insensitive and
+considers the CN only, so an OU or DC component that happens to end in `-lead` is
+ignored. Malformed membership DNs are skipped rather than failing the request, and a
+directory lookup that fails still returns the derived roles with `group_details` empty,
+since the roles are read from the DNs alone.
+
+Holding a role grants **scoped** access to the browsing endpoints: a lead can see their
+own subordinates without being able to browse the rest of the directory. The identifiers
+also appear on `/api/v1/session` as `lead_group_membership` so the UI can label the scope.
+
+#### Lead Scoping
+
+**Lead detection is off unless you opt in.** `AD_LEAD_GROUP_SUFFIXES` is unset by
+default, so no group confers a role and nothing in this section applies — a directory
+that already uses `-lead` naming does not silently acquire leads on upgrade. Two
+variables must both be set for scoping to take effect:
+
+```bash
+AD_LEAD_GROUP_SUFFIXES=-lead,-pm                      # enables lead detection
+AD_SEARCH_ALLOWED_GROUPS=Helpdesk                     # enables access restriction
+```
+
+`AD_LEAD_GROUP_SUFFIXES` alone derives roles (reported on `/api/v1/session` and
+`/api/v1/groups/membership`, and used by the Team tab) but restricts nothing, because an
+empty `AD_SEARCH_ALLOWED_GROUPS` still leaves every authenticated user unrestricted. With
+both set, every authenticated user falls into one of three levels:
+
+| Level | Who | Sees |
+| --- | --- | --- |
+| Unrestricted | Members of `AD_SEARCH_ALLOWED_GROUPS` | The whole configured base DN |
+| Scoped | Leads and PMs (by CN suffix) | Only the groups they lead and those groups' members |
+| Denied | Everyone else | Nothing; browsing endpoints return 403 |
+
+The allow-list takes precedence, so an admin who also leads a team keeps unrestricted
+access rather than being narrowed to it. With lead detection off, a member of a `-lead`
+group is simply denied like any other user rather than getting scoped access.
+
+A lead of `CN=engineering-*` is scoped to every group whose CN begins with
+`engineering` — `engineering`, `engineering-devs`, `engineering-qa` — and to the users
+who are members of them. Enforcement is server-side, applied as an LDAP filter ANDed onto
+each search:
+
+- `/api/v1/search` returns only users who are members of an in-scope group.
+- `/api/v1/groups` lists only in-scope groups.
+- `/api/v1/groups/{name}` returns `404` for an out-of-scope group, so the response does
+  not reveal that it exists.
+- `/api/v1/users/{username}` and `/api/v1/groups/membership/{username}` return `404`
+  unless the target shares an in-scope group with the caller.
+- When a scoped lead views a subordinate, out-of-scope memberships are withheld, so they
+  cannot learn which other teams that person belongs to.
+
+The scope is ANDed on last, and a scoped request is forced back to the configured base
+DN, so neither a custom `baseDN` nor a raw `filter` can widen it. A lead whose wildcard
+matches no groups is denied rather than falling through to an unscoped search.
+
+In the web UI, leads get a **Team** sidebar tab listing everyone in the groups they lead,
+grouped by group with a client-side filter over names, usernames and emails. The tab is
+hidden for users who lead nothing, and the page skips the request entirely for them. It
+is backed by [`/api/v1/team`](#team).
+
+#### Team
+
+Returns the groups the caller leads, each with the users in it. This backs the **Team**
+tab in the web UI, which shows a lead everyone in their groups without exposing the rest
+of the directory.
+
+```bash
+curl -k https://localhost:8080/api/v1/team \
+  -H "X-Session-ID: your-session-id"
+```
+
+```json
+{
+  "success": true,
+  "memberCount": 2,
+  "lead_group_membership": ["CN=engineering-*"],
+  "groups": [
+    {
+      "group": {
+        "dn": "CN=engineering,OU=Groups,DC=example,DC=com",
+        "cn": "engineering",
+        "sAMAccountName": "engineering"
+      },
+      "members": [
+        { "dn": "CN=Ann Lee,OU=Users,DC=example,DC=com", "cn": "Ann Lee",
+          "sAMAccountName": "alee", "mail": "alee@example.com" }
+      ]
+    }
+  ]
+}
+```
+
+The scope is derived from the session, so there is nothing to pass in and no way to ask
+about someone else's team. `memberCount` counts distinct users, so a person in two of the
+lead's groups is counted once. Nested member groups are omitted — the view lists people,
+not structure — and a group whose members cannot be read is listed empty rather than
+dropping the whole response. A user who leads nothing gets an empty team rather than an
+error, so the endpoint is safe to call for any authenticated user.
+
 #### Add User to Group
 ```bash
 curl -k -X POST https://localhost:8080/api/v1/groups/add-member \
@@ -378,6 +516,8 @@ Response:
 | AD_EXCLUDED_OBJECTS | Semicolon-separated list of DN path fragments (OUs, CN containers) to exclude from results | |
 | AD_EXCLUDED_GROUPS | Semicolon-separated list of group CNs or DNs to exclude from results | |
 | AD_SEARCH_ALLOWED_GROUPS | Semicolon-separated group CNs or DNs allowed to use `/api/v1/search`; empty allows all authenticated users | |
+| AD_LEAD_GROUP_SUFFIXES | Comma-separated CN suffixes marking a lead/PM group (e.g. `-lead,-pm`); members get search scoped to those groups. **Empty disables lead detection entirely** | |
+| AD_LEAD_GROUP_WILDCARD | Replaces the matched suffix in the derived base-group identifier | -* |
 | TLS_ENABLED | Enable HTTPS | true |
 | TLS_CERT_FILE | Path to TLS certificate | certs/server.crt |
 | TLS_KEY_FILE | Path to TLS private key | certs/server.key |
@@ -413,6 +553,10 @@ This gates `/api/v1/search`, `/api/v1/groups` (group search) and
 `/api/v1/groups/{groupName}` (group inspection) — the endpoints that expose directory
 contents beyond the caller's own record. `/api/v1/groups/resolve` is deliberately not
 gated: it is bounded by the DNs the caller supplies.
+
+Setting this list also activates [lead scoping](#lead-scoping): users outside it who lead
+a `-lead` or `-pm` group keep access to their own subordinates instead of being denied
+outright, while remaining unable to browse the rest of the directory.
 
 Group CN and DN matching is case-insensitive. Use a full DN when groups with the same CN exist in multiple OUs.
 

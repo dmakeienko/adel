@@ -28,6 +28,7 @@ const (
 	errMsgSearchNotPermitted = "Search is not permitted for this user"
 	errMsgQueryRequired      = "A query or filter is required; listing all groups is not supported"
 	logKeyUserDN             = "userDN"
+	logKeyUsername           = "username"
 
 	// objectClassGroup is the LDAP objectClass marking an entry as a group.
 	objectClassGroup = "group"
@@ -185,6 +186,21 @@ func (h *Handler) GetUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A scoped lead may only read their own subordinates. Without this the scoping on
+	// /search would be cosmetic: a lead could read any user by naming them directly.
+	// Reported as "not found" so the response does not confirm the user exists.
+	if h.config.AD.AccessFor(sess.MemberOf) == config.SearchScoped &&
+		!strings.EqualFold(username, sess.Username) &&
+		!h.sharesLeadScope(sess, user.MemberOf) {
+		slog.Warn("User lookup denied: target is outside the caller's lead scope",
+			logKeyUsername, sess.Username, "target", username)
+		writeJSON(w, http.StatusNotFound, models.UserResponse{
+			Success: false,
+			Error:   "User not found",
+		})
+		return
+	}
+
 	writeJSON(w, http.StatusOK, models.UserResponse{
 		Success: true,
 		User:    user,
@@ -262,6 +278,95 @@ func (h *Handler) EditUser(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// leadScopeGroups resolves the groups a scoped user is entitled to see: every group
+// whose CN matches one of their lead wildcards. It is the bridge between the derived
+// "engineering-*" identifiers and the concrete DNs that membership filters need.
+//
+// An empty result means the wildcards matched nothing, and callers must deny rather than
+// fall through to an unscoped search.
+func (h *Handler) leadScopeGroups(sess *session.Session) ([]*models.Group, error) {
+	cnFilter := h.config.AD.LeadGroupCNFilter(sess.MemberOf)
+	if cnFilter == "" {
+		return nil, nil
+	}
+
+	searchReq := ldap.NewSearchRequest(
+		h.config.AD.GetSearchBaseDN(),
+		ldap.ScopeWholeSubtree,
+		ldap.NeverDerefAliases,
+		h.config.AD.MaxSearchResults, 0, false,
+		fmt.Sprintf("(&%s%s)", h.config.AD.GroupFilter, cnFilter),
+		groupAttributes,
+		nil,
+	)
+
+	sr, err := sess.Conn.Search(searchReq)
+	if err != nil {
+		return nil, err
+	}
+
+	return h.entriesToGroups(sr.Entries), nil
+}
+
+// leadScopeDNs returns the DNs of the groups a scoped user may see.
+func (h *Handler) leadScopeDNs(sess *session.Session) ([]string, error) {
+	groups, err := h.leadScopeGroups(sess)
+	if err != nil {
+		return nil, err
+	}
+
+	dns := make([]string, 0, len(groups))
+	for _, g := range groups {
+		dns = append(dns, g.DN)
+	}
+	return dns, nil
+}
+
+// sharesLeadScope reports whether any of the target's groups falls inside the caller's
+// lead scope, i.e. whether the target is one of the caller's subordinates.
+func (h *Handler) sharesLeadScope(sess *session.Session, targetMemberOf []string) bool {
+	for _, dn := range targetMemberOf {
+		cn, ok := config.GroupCN(dn)
+		if !ok {
+			continue
+		}
+		if h.config.AD.IsGroupInLeadScope(sess.MemberOf, cn) {
+			return true
+		}
+	}
+	return false
+}
+
+// filterToLeadScope keeps only the group DNs that fall inside the caller's lead scope,
+// so a scoped lead never learns which out-of-scope groups a subordinate belongs to.
+func (h *Handler) filterToLeadScope(sess *session.Session, memberOf []string) []string {
+	kept := make([]string, 0, len(memberOf))
+	for _, dn := range memberOf {
+		cn, ok := config.GroupCN(dn)
+		if !ok {
+			continue
+		}
+		if h.config.AD.IsGroupInLeadScope(sess.MemberOf, cn) {
+			kept = append(kept, dn)
+		}
+	}
+	return kept
+}
+
+// denyOutOfScope writes the standard refusal for a scoped user whose request falls
+// outside the groups they lead.
+func denyOutOfScope(w http.ResponseWriter, sess *session.Session, operation string) {
+	slog.Warn("Request denied: outside the caller's lead scope",
+		"operation", operation,
+		logKeyUsername, sess.Username,
+		logKeyUserDN, sess.UserDN,
+	)
+	writeJSON(w, http.StatusForbidden, models.APIResponse{
+		Success: false,
+		Error:   errMsgSearchNotPermitted,
+	})
+}
+
 // GetAllGroups retrieves all groups from AD
 func (h *Handler) GetAllGroups(w http.ResponseWriter, r *http.Request) {
 	sess := middleware.GetSessionFromContext(r.Context())
@@ -272,7 +377,8 @@ func (h *Handler) GetAllGroups(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if !h.config.AD.IsSearchAllowedFor(sess.MemberOf) {
+	access := h.config.AD.AccessFor(sess.MemberOf)
+	if access == config.SearchDenied {
 		slog.Warn("Group listing denied: user is not a member of any allowed group",
 			"username", sess.Username,
 			logKeyUserDN, sess.UserDN,
@@ -284,6 +390,17 @@ func (h *Handler) GetAllGroups(w http.ResponseWriter, r *http.Request) {
 			Error:   errMsgSearchNotPermitted,
 		})
 		return
+	}
+
+	// A scoped lead may only see the groups within their wildcard, so their listing is
+	// confined to those CNs rather than the whole base DN.
+	scopeFilter := ""
+	if access == config.SearchScoped {
+		scopeFilter = h.config.AD.LeadGroupCNFilter(sess.MemberOf)
+		if scopeFilter == "" {
+			denyOutOfScope(w, sess, "GetAllGroups")
+			return
+		}
 	}
 
 	// Get optional baseDN from query params
@@ -319,6 +436,14 @@ func (h *Handler) GetAllGroups(w http.ResponseWriter, r *http.Request) {
 			"(&%s(|(cn=*%s*)(sAMAccountName=*%s*)))",
 			h.config.AD.GroupFilter, escaped, escaped,
 		)
+	}
+
+	// The scope is ANDed on last so it cannot be widened by the caller's own filter, and
+	// the base DN is forced back to the configured root so a custom baseDN cannot reach
+	// outside it either.
+	if scopeFilter != "" {
+		filter = fmt.Sprintf("(&%s%s)", filter, scopeFilter)
+		baseDN = h.config.AD.GetSearchBaseDN()
 	}
 
 	// Search for groups
@@ -363,7 +488,8 @@ func (h *Handler) GetGroup(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if !h.config.AD.IsSearchAllowedFor(sess.MemberOf) {
+	access := h.config.AD.AccessFor(sess.MemberOf)
+	if access == config.SearchDenied {
 		slog.Warn("Group inspection denied: user is not a member of any allowed group",
 			"username", sess.Username,
 			logKeyUserDN, sess.UserDN,
@@ -391,6 +517,20 @@ func (h *Handler) GetGroup(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, models.GroupDetailResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Group not found: %v", err),
+		})
+		return
+	}
+
+	// A scoped lead may only inspect groups inside their wildcard. The check runs on the
+	// resolved group so it cannot be sidestepped by naming the group differently (CN vs
+	// sAMAccountName), and reports "not found" rather than "forbidden" so the response
+	// does not confirm that an out-of-scope group exists.
+	if access == config.SearchScoped && !h.config.AD.IsGroupInLeadScope(sess.MemberOf, group.CN) {
+		slog.Warn("Group inspection denied: group is outside the caller's lead scope",
+			logKeyUsername, sess.Username, logKeyGroup, group.CN)
+		writeJSON(w, http.StatusNotFound, models.GroupDetailResponse{
+			Success: false,
+			Error:   "Group not found",
 		})
 		return
 	}
@@ -710,6 +850,181 @@ func countNonEmpty(values []string) int {
 	return n
 }
 
+// GroupMembership returns every group the given user belongs to, together with the
+// wildcard identifiers of the groups in which they hold a lead or PM role. Defaults to
+// the calling user when no username is supplied.
+//
+// Group details are best-effort: a directory lookup that fails leaves the details empty
+// but still returns the roles derived from the membership DNs, since role derivation
+// reads only the DNs and does not depend on the lookup succeeding.
+func (h *Handler) GroupMembership(w http.ResponseWriter, r *http.Request) {
+	sess := middleware.GetSessionFromContext(r.Context())
+	if sess == nil {
+		writeJSON(w, http.StatusUnauthorized, models.GroupMembershipResponse{
+			Success: false,
+			Error:   errMsgSessionNotFound,
+		})
+		return
+	}
+
+	// Looking up a user other than yourself exposes directory contents, so it is gated
+	// like the other browsing endpoints; your own memberships always remain readable.
+	username := strings.TrimSpace(mux.Vars(r)["username"])
+	memberOf := sess.MemberOf
+	isSelf := username == "" || strings.EqualFold(username, sess.Username)
+
+	access := h.config.AD.AccessFor(sess.MemberOf)
+	if !isSelf {
+		if access == config.SearchDenied {
+			writeJSON(w, http.StatusForbidden, models.GroupMembershipResponse{
+				Success: false,
+				Error:   errMsgSearchNotPermitted,
+			})
+			return
+		}
+
+		user, err := h.findUser(sess.Conn, username)
+		if err != nil {
+			logLDAPError("group membership lookup", err, map[string]string{logKeyUsername: username})
+			writeJSON(w, http.StatusNotFound, models.GroupMembershipResponse{
+				Success: false,
+				Error:   fmt.Sprintf("Failed to get user: %v", err),
+			})
+			return
+		}
+
+		// A scoped lead may only inspect their own subordinates: the target must share at
+		// least one in-scope group. Reported as "not found" so the response does not
+		// confirm that an out-of-scope user exists.
+		if access == config.SearchScoped && !h.sharesLeadScope(sess, user.MemberOf) {
+			slog.Warn("Group membership lookup denied: user is outside the caller's lead scope",
+				logKeyUsername, sess.Username, "target", username)
+			writeJSON(w, http.StatusNotFound, models.GroupMembershipResponse{
+				Success: false,
+				Error:   "User not found",
+			})
+			return
+		}
+
+		memberOf = user.MemberOf
+	}
+
+	// The roles reported are always the target's own, but a scoped lead sees only the
+	// portion of another user's memberships that falls inside their scope.
+	leadGroups := h.config.AD.LeadGroupsFor(memberOf)
+	if !isSelf && access == config.SearchScoped {
+		memberOf = h.filterToLeadScope(sess, memberOf)
+	}
+
+	groups := []*models.Group{}
+	if dns := normalizeDNs(memberOf, make(map[string]struct{}, len(memberOf)), maxResolveDNs); len(dns) > 0 {
+		resolved, err := h.resolveGroupDNs(sess.Conn, dns, groupAttributes)
+		if err != nil {
+			// Degrade rather than fail: the roles above are still valid without details.
+			slog.Warn("Failed to resolve group details, returning roles only",
+				"username", sess.Username, "error", err)
+		} else {
+			groups = resolved
+		}
+	}
+
+	writeJSON(w, http.StatusOK, models.GroupMembershipResponse{
+		Success:             true,
+		GroupDetails:        groups,
+		LeadGroupMembership: leadGroups,
+	})
+}
+
+// Team lists the groups the caller leads together with their members, so a lead can see
+// everyone reporting into their teams in one view.
+//
+// The scope is the caller's own lead wildcards, so this is safe for any authenticated
+// user: a non-lead simply has an empty scope and gets an empty team. Users with
+// unrestricted access are not leads by definition and also get an empty result, which
+// keeps the endpoint about leadership rather than doubling as a directory dump.
+func (h *Handler) Team(w http.ResponseWriter, r *http.Request) {
+	sess := middleware.GetSessionFromContext(r.Context())
+	if sess == nil {
+		writeJSON(w, http.StatusUnauthorized, models.TeamResponse{
+			Success: false,
+			Error:   errMsgSessionNotFound,
+		})
+		return
+	}
+
+	leadGroups := h.config.AD.LeadGroupsFor(sess.MemberOf)
+	if len(leadGroups) == 0 {
+		writeJSON(w, http.StatusOK, models.TeamResponse{
+			Success:             true,
+			Groups:              []*models.TeamGroup{},
+			LeadGroupMembership: []string{},
+		})
+		return
+	}
+
+	scopeGroups, err := h.leadScopeGroups(sess)
+	if err != nil {
+		slog.Error("Failed to resolve team scope",
+			logKeyUsername, sess.Username, "error", err)
+		writeJSON(w, http.StatusInternalServerError, models.TeamResponse{
+			Success: false,
+			Error:   "Failed to resolve team",
+		})
+		return
+	}
+
+	// Distinct members across all of the lead's groups, so someone in two teams is
+	// counted once even though they appear under each group they belong to.
+	distinct := make(map[string]struct{})
+	teams := make([]*models.TeamGroup, 0, len(scopeGroups))
+
+	for _, group := range scopeGroups {
+		if h.isExcludedGroup(group.CN, group.DN) {
+			continue
+		}
+
+		members, truncated, err := h.findGroupMembers(sess.Conn, group.DN)
+		if err != nil {
+			// One unreadable group must not blank the whole view, so it is listed with
+			// no members rather than dropped.
+			slog.Warn("Failed to list team group members",
+				logKeyUsername, sess.Username, logKeyGroup, group.CN, "error", err)
+			members = []*models.GroupMember{}
+		}
+
+		// Nested groups are structure, not people; the Team view lists users.
+		users := make([]*models.GroupMember, 0, len(members))
+		for _, m := range members {
+			if m.IsGroup {
+				continue
+			}
+			users = append(users, m)
+			distinct[strings.ToLower(m.DN)] = struct{}{}
+		}
+
+		sort.Slice(users, func(i, j int) bool {
+			return strings.ToLower(memberLabel(users[i])) < strings.ToLower(memberLabel(users[j]))
+		})
+
+		teams = append(teams, &models.TeamGroup{
+			Group:     group,
+			Members:   users,
+			Truncated: truncated,
+		})
+	}
+
+	sort.Slice(teams, func(i, j int) bool {
+		return strings.ToLower(teams[i].Group.CN) < strings.ToLower(teams[j].Group.CN)
+	})
+
+	writeJSON(w, http.StatusOK, models.TeamResponse{
+		Success:             true,
+		Groups:              teams,
+		MemberCount:         len(distinct),
+		LeadGroupMembership: leadGroups,
+	})
+}
+
 // AddUserToGroup adds a user to a group
 func (h *Handler) AddUserToGroup(w http.ResponseWriter, r *http.Request) {
 	sess := middleware.GetSessionFromContext(r.Context())
@@ -772,10 +1087,10 @@ func (h *Handler) AddUserToGroup(w http.ResponseWriter, r *http.Request) {
 	if err := sess.Conn.Modify(modifyReq); err != nil {
 		// Log detailed LDAP error information
 		logLDAPError("AddUserToGroup", err, map[string]string{
-			"username":   req.Username,
-			logKeyUserDN: userDN,
-			logKeyGroup:  req.GroupName,
-			"groupDN":    groupDN,
+			logKeyUsername: req.Username,
+			logKeyUserDN:   userDN,
+			logKeyGroup:    req.GroupName,
+			"groupDN":      groupDN,
 		})
 
 		// Check if user is already a member
@@ -878,10 +1193,10 @@ func (h *Handler) RemoveUserFromGroup(w http.ResponseWriter, r *http.Request) {
 	if err := sess.Conn.Modify(modifyReq); err != nil {
 		// Log detailed LDAP error information
 		logLDAPError("RemoveUserFromGroup", err, map[string]string{
-			"username":   req.Username,
-			logKeyUserDN: userDN,
-			logKeyGroup:  req.GroupName,
-			"groupDN":    groupDN,
+			logKeyUsername: req.Username,
+			logKeyUserDN:   userDN,
+			logKeyGroup:    req.GroupName,
+			"groupDN":      groupDN,
 		})
 
 		// Check if user is not a member
@@ -958,7 +1273,8 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if !h.config.AD.IsSearchAllowedFor(sess.MemberOf) {
+	access := h.config.AD.AccessFor(sess.MemberOf)
+	if access == config.SearchDenied {
 		slog.Warn("Search denied: user is not a member of any allowed group",
 			"username", sess.Username,
 			logKeyUserDN, sess.UserDN,
@@ -970,6 +1286,34 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 			Error:   errMsgSearchNotPermitted,
 		})
 		return
+	}
+
+	// A scoped lead sees only members of the groups they lead. The in-scope groups are
+	// resolved up front so the membership test runs against concrete DNs.
+	scopeFilter := ""
+	if access == config.SearchScoped {
+		scopeDNs, err := h.leadScopeDNs(sess)
+		if err != nil {
+			slog.Error("Failed to resolve lead scope, denying search",
+				logKeyUsername, sess.Username, "error", err)
+			writeJSON(w, http.StatusInternalServerError, models.SearchResponse{
+				Success: false,
+				Error:   "Failed to resolve search scope",
+			})
+			return
+		}
+		// No in-scope groups means nothing is visible. Falling through here would run an
+		// unscoped search, so this must deny.
+		scopeFilter = config.LeadScopeFilter(scopeDNs)
+		if scopeFilter == "" {
+			slog.Warn("Search denied: lead scope resolved to no groups",
+				logKeyUsername, sess.Username, logKeyUserDN, sess.UserDN)
+			writeJSON(w, http.StatusForbidden, models.SearchResponse{
+				Success: false,
+				Error:   errMsgSearchNotPermitted,
+			})
+			return
+		}
 	}
 
 	// Get parameters from query string (GET) or request body (POST)
@@ -1016,6 +1360,11 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 		)
 	} else if filter == "" {
 		filter = h.config.AD.SearchFilter
+	}
+	// ANDed on last so neither a raw filter nor a custom baseDN can widen the scope.
+	if scopeFilter != "" {
+		filter = fmt.Sprintf("(&%s%s)", filter, scopeFilter)
+		baseDN = h.config.AD.GetSearchBaseDN()
 	}
 	if len(attributes) == 0 {
 		attributes = []string{"*"}

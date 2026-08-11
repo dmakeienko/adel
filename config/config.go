@@ -52,6 +52,18 @@ type ADConfig struct {
 	// SearchAllowedGroups is a list of group CNs or DNs whose members may use the search endpoint.
 	// If empty, search is available to every authenticated user.
 	SearchAllowedGroups []string
+	// LeadGroupSuffixes are the CN suffixes marking a role-bearing group, e.g. "-lead"
+	// and "-pm". A user in such a group is a lead/PM of the base group named by the CN
+	// with the suffix replaced by LeadGroupWildcard.
+	//
+	// Empty by default: lead detection is opt-in and stays completely inert until
+	// AD_LEAD_GROUP_SUFFIXES is set, so a directory that happens to use "-lead" naming
+	// does not silently acquire leads.
+	LeadGroupSuffixes []string
+	// LeadGroupWildcard replaces a matched suffix when deriving the base-group
+	// identifier: "engineering-lead" becomes "engineering-*". Only consulted when
+	// LeadGroupSuffixes is non-empty.
+	LeadGroupWildcard string
 	// Optional: Path to CA certificate for LDAPS
 	CACertPath string
 }
@@ -103,6 +115,8 @@ func Load() (*Config, error) {
 			MaxSearchResults:    getIntEnv("AD_MAX_SEARCH_RESULTS", 200),
 			ExcludedGroups:      getDNSliceEnv("AD_EXCLUDED_GROUPS", nil),
 			SearchAllowedGroups: getDNSliceEnv("AD_SEARCH_ALLOWED_GROUPS", nil),
+			LeadGroupSuffixes:   getSliceEnv("AD_LEAD_GROUP_SUFFIXES", nil),
+			LeadGroupWildcard:   getEnv("AD_LEAD_GROUP_WILDCARD", "-*"),
 			CACertPath:          getEnv("AD_CA_CERT_PATH", ""),
 		},
 		TLS: TLSConfig{
@@ -150,14 +164,52 @@ func (c *ADConfig) GetSearchBaseDN() string {
 	return c.BaseDN
 }
 
-// IsSearchAllowedFor reports whether a user holding the given group DNs may use the
-// search endpoint. Allowed groups may be configured as a full DN or a bare group CN.
-// An empty allow-list preserves the default of allowing every authenticated user.
-func (c *ADConfig) IsSearchAllowedFor(memberOf []string) bool {
+// SearchAccess describes how much of the directory a user may see.
+type SearchAccess int
+
+const (
+	// SearchDenied means the user may not use the browsing endpoints at all.
+	SearchDenied SearchAccess = iota
+	// SearchScoped means the user may search, but only within the groups they lead.
+	// Callers must apply LeadScopeFilter to every search they run for such a user.
+	SearchScoped
+	// SearchUnrestricted means the user may search the whole configured base DN.
+	SearchUnrestricted
+)
+
+// AccessFor reports how much of the directory a user holding the given group DNs may
+// see. The allow-list grants unrestricted access and takes precedence, so an admin who
+// also happens to lead a team is not accidentally narrowed to it. Otherwise a lead or
+// PM gets access scoped to the groups they lead, and everyone else is denied.
+//
+// An empty allow-list preserves the historical default of unrestricted access for every
+// authenticated user, so enabling lead scoping requires setting AD_SEARCH_ALLOWED_GROUPS.
+func (c *ADConfig) AccessFor(memberOf []string) SearchAccess {
 	if len(c.SearchAllowedGroups) == 0 {
-		return true
+		return SearchUnrestricted
 	}
 
+	if c.isAllowListed(memberOf) {
+		return SearchUnrestricted
+	}
+
+	if c.IsLeadFor(memberOf) {
+		return SearchScoped
+	}
+
+	return SearchDenied
+}
+
+// IsSearchAllowedFor reports whether a user may use the search endpoint in any capacity.
+// It does not distinguish scoped from unrestricted access: callers that run a directory
+// search must consult AccessFor and apply LeadScopeFilter when the result is SearchScoped.
+func (c *ADConfig) IsSearchAllowedFor(memberOf []string) bool {
+	return c.AccessFor(memberOf) != SearchDenied
+}
+
+// isAllowListed reports whether any of the user's groups appears in SearchAllowedGroups,
+// matched either as a full DN or as a bare CN.
+func (c *ADConfig) isAllowListed(memberOf []string) bool {
 	for _, groupDN := range memberOf {
 		for _, allowedGroup := range c.SearchAllowedGroups {
 			if strings.EqualFold(groupDN, allowedGroup) {
@@ -165,23 +217,166 @@ func (c *ADConfig) IsSearchAllowedFor(memberOf []string) bool {
 			}
 		}
 
-		parsedDN, err := ldap.ParseDN(groupDN)
-		if err != nil || len(parsedDN.RDNs) == 0 {
+		cn, ok := GroupCN(groupDN)
+		if !ok {
 			continue
 		}
-		for _, attribute := range parsedDN.RDNs[0].Attributes {
-			if !strings.EqualFold(attribute.Type, "CN") {
-				continue
-			}
-			for _, allowedGroup := range c.SearchAllowedGroups {
-				if !strings.Contains(allowedGroup, "=") && strings.EqualFold(attribute.Value, allowedGroup) {
-					return true
-				}
+		for _, allowedGroup := range c.SearchAllowedGroups {
+			if !strings.Contains(allowedGroup, "=") && strings.EqualFold(cn, allowedGroup) {
+				return true
 			}
 		}
 	}
 
 	return false
+}
+
+// GroupCN extracts the CN value from a group DN. Only the leftmost RDN is considered,
+// so OU and DC components never take part in CN matching. The second return value is
+// false when the DN is malformed or carries no CN, letting callers skip it safely.
+func GroupCN(groupDN string) (string, bool) {
+	parsedDN, err := ldap.ParseDN(groupDN)
+	if err != nil || len(parsedDN.RDNs) == 0 {
+		return "", false
+	}
+	for _, attribute := range parsedDN.RDNs[0].Attributes {
+		if strings.EqualFold(attribute.Type, "CN") {
+			return attribute.Value, true
+		}
+	}
+	return "", false
+}
+
+// LeadBasesFor returns the bare base-group names the user leads, e.g. "engineering" for
+// membership of "engineering-lead" or "engineering-pm". These are the raw names behind
+// the wildcard identifiers, and are what the scope filters match on.
+//
+// Matching is case-insensitive and confined to the CN. Groups without a configured
+// suffix, and DNs that cannot be parsed, are skipped — they remain ordinary memberships.
+// The result is de-duplicated and returned in first-seen order for stable output.
+func (c *ADConfig) LeadBasesFor(memberOf []string) []string {
+	if len(c.LeadGroupSuffixes) == 0 {
+		return nil
+	}
+
+	var bases []string
+	seen := make(map[string]struct{}, len(memberOf))
+
+	for _, groupDN := range memberOf {
+		cn, ok := GroupCN(groupDN)
+		if !ok {
+			continue
+		}
+
+		for _, suffix := range c.LeadGroupSuffixes {
+			if suffix == "" || !strings.HasSuffix(strings.ToLower(cn), strings.ToLower(suffix)) {
+				continue
+			}
+			// A CN that is nothing but the suffix has no base group to name.
+			base := cn[:len(cn)-len(suffix)]
+			if base == "" {
+				break
+			}
+
+			key := strings.ToLower(base)
+			if _, dup := seen[key]; !dup {
+				seen[key] = struct{}{}
+				bases = append(bases, base)
+			}
+			// Stop at the first matching suffix: suffixes are alternatives, and a CN
+			// ending in two of them would otherwise yield two entries.
+			break
+		}
+	}
+
+	return bases
+}
+
+// LeadGroupsFor derives the wildcard base-group identifiers for the groups in which the
+// user holds a lead or PM role, so both "engineering-lead" and "engineering-pm" collapse
+// to the single identifier "CN=engineering-*". These are display identifiers reported to
+// the UI; enforcement uses LeadScopeFilter, which is built from the same bases.
+func (c *ADConfig) LeadGroupsFor(memberOf []string) []string {
+	bases := c.LeadBasesFor(memberOf)
+	if len(bases) == 0 {
+		return nil
+	}
+
+	identifiers := make([]string, 0, len(bases))
+	for _, base := range bases {
+		identifiers = append(identifiers, "CN="+base+c.LeadGroupWildcard)
+	}
+	return identifiers
+}
+
+// IsLeadFor reports whether the user holds a lead or PM role in at least one group.
+func (c *ADConfig) IsLeadFor(memberOf []string) bool {
+	return len(c.LeadBasesFor(memberOf)) > 0
+}
+
+// LeadGroupCNFilter builds an LDAP filter matching the groups a lead may see: every
+// group whose CN starts with one of their base names. This is the wildcard rendered as
+// a filter, so "engineering-*" matches "engineering", "engineering-devs" and so on.
+//
+// Returns "" when the user leads nothing, which callers must treat as "match nothing"
+// rather than "match everything".
+func (c *ADConfig) LeadGroupCNFilter(memberOf []string) string {
+	bases := c.LeadBasesFor(memberOf)
+	if len(bases) == 0 {
+		return ""
+	}
+
+	var clauses strings.Builder
+	for _, base := range bases {
+		// The base is directory data, so it is escaped; the trailing * stays literal so
+		// it keeps its wildcard meaning.
+		clauses.WriteString("(cn=" + ldap.EscapeFilter(base) + "*)")
+	}
+
+	if len(bases) == 1 {
+		return clauses.String()
+	}
+	return "(|" + clauses.String() + ")"
+}
+
+// IsGroupInLeadScope reports whether a group CN falls within the caller's lead scope,
+// i.e. whether it starts with one of their base names. It mirrors LeadGroupCNFilter so
+// the in-process check and the LDAP-side filter agree on what "engineering-*" covers.
+//
+// A user who leads nothing has an empty scope and matches no group.
+func (c *ADConfig) IsGroupInLeadScope(memberOf []string, groupCN string) bool {
+	for _, base := range c.LeadBasesFor(memberOf) {
+		if strings.HasPrefix(strings.ToLower(groupCN), strings.ToLower(base)) {
+			return true
+		}
+	}
+	return false
+}
+
+// LeadScopeFilter builds an LDAP filter matching the users a lead may see: members of
+// any group within their wildcard scope. groupDNs are the in-scope group DNs, resolved
+// by the caller via LeadGroupCNFilter, since membership must be tested against concrete
+// DNs rather than names.
+//
+// Returns "" when there are no in-scope groups, which callers must treat as
+// "match nothing" so an empty scope cannot silently widen into a full directory search.
+func LeadScopeFilter(groupDNs []string) string {
+	if len(groupDNs) == 0 {
+		return ""
+	}
+
+	var clauses strings.Builder
+	for _, dn := range groupDNs {
+		// matchingRuleInChain would also catch users nested through subgroups, but it is
+		// AD-specific; a direct memberOf test works on every directory and matches how
+		// the rest of the group endpoints resolve membership.
+		clauses.WriteString("(memberOf=" + ldap.EscapeFilter(dn) + ")")
+	}
+
+	if len(groupDNs) == 1 {
+		return clauses.String()
+	}
+	return "(|" + clauses.String() + ")"
 }
 
 // GetLDAPURL returns the LDAP connection URL

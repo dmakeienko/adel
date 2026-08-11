@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -273,7 +274,7 @@ func TestIsSearchAllowedFor(t *testing.T) {
 		},
 		{
 			name:          "matches group CN case-insensitively",
-			memberOf:      []string{"CN=Helpdesk,OU=Groups,DC=example,DC=com"},
+			memberOf:      []string{dnHelpdesk},
 			allowedGroups: []string{"helpdesk"},
 			want:          true,
 		},
@@ -291,13 +292,13 @@ func TestIsSearchAllowedFor(t *testing.T) {
 		},
 		{
 			name:          "matches a group reached through nesting",
-			memberOf:      []string{"CN=Helpdesk-Tier1,OU=Groups,DC=example,DC=com", "CN=Helpdesk,OU=Groups,DC=example,DC=com"},
+			memberOf:      []string{"CN=Helpdesk-Tier1,OU=Groups,DC=example,DC=com", dnHelpdesk},
 			allowedGroups: []string{"Helpdesk"},
 			want:          true,
 		},
 		{
 			name:          "rejects users outside allowed groups",
-			memberOf:      []string{"CN=Employees,OU=Groups,DC=example,DC=com"},
+			memberOf:      []string{dnEmployees},
 			allowedGroups: []string{"Helpdesk", "Directory Admins"},
 			want:          false,
 		},
@@ -316,5 +317,333 @@ func TestIsSearchAllowedFor(t *testing.T) {
 					tt.memberOf, tt.allowedGroups, got, tt.want)
 			}
 		})
+	}
+}
+
+// Shared DN fixtures, so the expected derivations read against a single spelling.
+const (
+	dnHelpdesk        = "CN=Helpdesk,OU=Groups,DC=example,DC=com"
+	dnEngineeringLead = "CN=engineering-lead,OU=Groups,DC=example,DC=com"
+	dnEmployees       = "CN=Employees,OU=Groups,DC=example,DC=com"
+	wildcardEngineer  = "CN=engineering-*"
+)
+
+// enabledLeadConfig is a config with lead detection switched on, as an operator would
+// after setting AD_LEAD_GROUP_SUFFIXES. Lead detection is off unless configured, so
+// tests must opt in explicitly rather than relying on a default.
+func enabledLeadConfig() *ADConfig {
+	return &ADConfig{
+		LeadGroupSuffixes: []string{"-lead", "-pm"},
+		LeadGroupWildcard: "-*",
+	}
+}
+
+func TestLeadGroupsFor(t *testing.T) {
+	tests := []struct {
+		name     string
+		cfg      *ADConfig
+		memberOf []string
+		want     []string
+	}{
+		{
+			name:     "derives wildcard identifier from a lead group",
+			cfg:      enabledLeadConfig(),
+			memberOf: []string{dnEngineeringLead},
+			want:     []string{wildcardEngineer},
+		},
+		{
+			name:     "derives wildcard identifier from a pm group",
+			cfg:      enabledLeadConfig(),
+			memberOf: []string{"CN=engineering-pm,OU=Groups,DC=example,DC=com"},
+			want:     []string{wildcardEngineer},
+		},
+		{
+			name: "collapses lead and pm of the same base group",
+			cfg:  enabledLeadConfig(),
+			memberOf: []string{
+				dnEngineeringLead,
+				"CN=engineering-pm,OU=Other,DC=example,DC=com",
+			},
+			want: []string{wildcardEngineer},
+		},
+		{
+			name: "matches suffixes case-insensitively",
+			cfg:  enabledLeadConfig(),
+			memberOf: []string{
+				"CN=Engineering-LEAD,OU=Groups,DC=example,DC=com",
+				"CN=Support-Pm,OU=Groups,DC=example,DC=com",
+			},
+			want: []string{"CN=Engineering-*", "CN=Support-*"},
+		},
+		{
+			name:     "excludes groups without a role suffix",
+			cfg:      enabledLeadConfig(),
+			memberOf: []string{dnEmployees},
+			want:     nil,
+		},
+		{
+			name: "ignores suffixes appearing only in OU or DC components",
+			cfg:  enabledLeadConfig(),
+			memberOf: []string{
+				"CN=Employees,OU=engineering-lead,DC=example,DC=com",
+				"CN=Employees,OU=Groups,DC=corp-pm,DC=com",
+			},
+			want: nil,
+		},
+		{
+			name: "skips malformed DNs and keeps processing the rest",
+			cfg:  enabledLeadConfig(),
+			memberOf: []string{
+				"not a dn",
+				"",
+				dnEngineeringLead,
+			},
+			want: []string{wildcardEngineer},
+		},
+		{
+			name:     "keeps a CN that is only the suffix out of the results",
+			cfg:      enabledLeadConfig(),
+			memberOf: []string{"CN=-lead,OU=Groups,DC=example,DC=com"},
+			want:     nil,
+		},
+		{
+			name:     "honours custom suffixes",
+			cfg:      &ADConfig{LeadGroupSuffixes: []string{"-owner"}, LeadGroupWildcard: "-*"},
+			memberOf: []string{"CN=payments-owner,OU=Groups,DC=example,DC=com", "CN=payments-lead,OU=Groups,DC=example,DC=com"},
+			want:     []string{"CN=payments-*"},
+		},
+		{
+			name:     "honours a custom wildcard",
+			cfg:      &ADConfig{LeadGroupSuffixes: []string{"-lead"}, LeadGroupWildcard: "-all"},
+			memberOf: []string{dnEngineeringLead},
+			want:     []string{"CN=engineering-all"},
+		},
+		{
+			name:     "disabled when no suffixes are configured",
+			cfg:      &ADConfig{LeadGroupWildcard: "-*"},
+			memberOf: []string{dnEngineeringLead},
+			want:     nil,
+		},
+		{
+			name: "preserves an escaped comma in the CN",
+			cfg:  enabledLeadConfig(),
+			memberOf: []string{
+				`CN=Support\, Tier 2-lead,OU=Groups,DC=example,DC=com`,
+			},
+			want: []string{"CN=Support, Tier 2-*"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.cfg.LeadGroupsFor(tt.memberOf)
+			if len(got) != len(tt.want) {
+				t.Fatalf("LeadGroupsFor(%v) = %v, want %v", tt.memberOf, got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("LeadGroupsFor(%v)[%d] = %q, want %q", tt.memberOf, i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+// TestLeadDetectionDisabledByDefault pins the opt-in contract: without
+// AD_LEAD_GROUP_SUFFIXES the feature is completely inert, so a directory that happens to
+// use "-lead" naming does not silently acquire leads with scoped search access.
+func TestLeadDetectionDisabledByDefault(t *testing.T) {
+	os.Setenv("AD_SERVER", "test-ad.example.com")
+	os.Setenv("AD_BASE_DN", "dc=test,dc=com")
+	os.Setenv("AD_SEARCH_ALLOWED_GROUPS", "Helpdesk")
+	defer os.Unsetenv("AD_SERVER")
+	defer os.Unsetenv("AD_BASE_DN")
+	defer os.Unsetenv("AD_SEARCH_ALLOWED_GROUPS")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if len(cfg.AD.LeadGroupSuffixes) != 0 {
+		t.Errorf("LeadGroupSuffixes = %v, want empty by default", cfg.AD.LeadGroupSuffixes)
+	}
+
+	lead := []string{dnEngineeringLead}
+	if cfg.AD.IsLeadFor(lead) {
+		t.Error("membership of a -lead group must not confer a role when the feature is off")
+	}
+	if got := cfg.AD.LeadGroupsFor(lead); len(got) != 0 {
+		t.Errorf("LeadGroupsFor() = %v, want none when the feature is off", got)
+	}
+	if got := cfg.AD.LeadGroupCNFilter(lead); got != "" {
+		t.Errorf("LeadGroupCNFilter() = %q, want empty when the feature is off", got)
+	}
+	// With the allow-list set and lead detection off, a -lead member is simply denied
+	// rather than silently getting scoped access.
+	if got := cfg.AD.AccessFor(lead); got != SearchDenied {
+		t.Errorf("AccessFor() = %v, want SearchDenied when the feature is off", got)
+	}
+}
+
+// TestLeadDetectionEnabledByEnv confirms setting the env var turns the feature on.
+func TestLeadDetectionEnabledByEnv(t *testing.T) {
+	os.Setenv("AD_SERVER", "test-ad.example.com")
+	os.Setenv("AD_BASE_DN", "dc=test,dc=com")
+	os.Setenv("AD_LEAD_GROUP_SUFFIXES", "-lead,-pm")
+	defer os.Unsetenv("AD_SERVER")
+	defer os.Unsetenv("AD_BASE_DN")
+	defer os.Unsetenv("AD_LEAD_GROUP_SUFFIXES")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if !cfg.AD.IsLeadFor([]string{dnEngineeringLead}) {
+		t.Error("a -lead member should hold a role once the suffixes are configured")
+	}
+	if got := cfg.AD.LeadGroupsFor([]string{dnEngineeringLead}); len(got) != 1 || got[0] != wildcardEngineer {
+		t.Errorf("LeadGroupsFor() = %v, want [%s]", got, wildcardEngineer)
+	}
+}
+
+func TestAccessFor(t *testing.T) {
+	withAllowList := enabledLeadConfig()
+	withAllowList.SearchAllowedGroups = []string{"Helpdesk"}
+
+	tests := []struct {
+		name     string
+		cfg      *ADConfig
+		memberOf []string
+		want     SearchAccess
+	}{
+		{
+			name:     "empty allow-list leaves everyone unrestricted",
+			cfg:      enabledLeadConfig(),
+			memberOf: []string{dnEmployees},
+			want:     SearchUnrestricted,
+		},
+		{
+			name:     "allow-listed user is unrestricted",
+			cfg:      withAllowList,
+			memberOf: []string{dnHelpdesk},
+			want:     SearchUnrestricted,
+		},
+		{
+			name:     "lead is scoped rather than unrestricted",
+			cfg:      withAllowList,
+			memberOf: []string{dnEngineeringLead},
+			want:     SearchScoped,
+		},
+		{
+			name:     "pm is scoped",
+			cfg:      withAllowList,
+			memberOf: []string{"CN=engineering-pm,OU=Groups,DC=example,DC=com"},
+			want:     SearchScoped,
+		},
+		{
+			name:     "allow-list wins over lead role",
+			cfg:      withAllowList,
+			memberOf: []string{dnEngineeringLead, dnHelpdesk},
+			want:     SearchUnrestricted,
+		},
+		{
+			name:     "plain member is denied",
+			cfg:      withAllowList,
+			memberOf: []string{dnEmployees},
+			want:     SearchDenied,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.cfg.AccessFor(tt.memberOf); got != tt.want {
+				t.Errorf("AccessFor(%v) = %v, want %v", tt.memberOf, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLeadGroupCNFilter(t *testing.T) {
+	cfg := enabledLeadConfig()
+
+	t.Run("matches the base name as a prefix wildcard", func(t *testing.T) {
+		got := cfg.LeadGroupCNFilter([]string{dnEngineeringLead})
+		want := "(cn=engineering*)"
+		if got != want {
+			t.Errorf("LeadGroupCNFilter() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("ORs multiple bases", func(t *testing.T) {
+		got := cfg.LeadGroupCNFilter([]string{
+			dnEngineeringLead,
+			"CN=support-pm,OU=Groups,DC=example,DC=com",
+		})
+		want := "(|(cn=engineering*)(cn=support*))"
+		if got != want {
+			t.Errorf("LeadGroupCNFilter() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("empty for a non-lead so callers match nothing", func(t *testing.T) {
+		if got := cfg.LeadGroupCNFilter([]string{dnEmployees}); got != "" {
+			t.Errorf("LeadGroupCNFilter() = %q, want empty", got)
+		}
+	})
+
+	t.Run("escapes filter metacharacters in the base name", func(t *testing.T) {
+		got := cfg.LeadGroupCNFilter([]string{`CN=a)(b-lead,OU=Groups,DC=example,DC=com`})
+		if strings.Contains(got, "a)(b") {
+			t.Errorf("LeadGroupCNFilter() = %q, want the base name escaped", got)
+		}
+	})
+}
+
+func TestLeadScopeFilter(t *testing.T) {
+	t.Run("matches members of one group", func(t *testing.T) {
+		got := LeadScopeFilter([]string{"CN=engineering,OU=Groups,DC=example,DC=com"})
+		want := "(memberOf=CN=engineering,OU=Groups,DC=example,DC=com)"
+		if got != want {
+			t.Errorf("LeadScopeFilter() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("ORs multiple groups", func(t *testing.T) {
+		got := LeadScopeFilter([]string{"CN=a,DC=x", "CN=b,DC=x"})
+		want := "(|(memberOf=CN=a,DC=x)(memberOf=CN=b,DC=x))"
+		if got != want {
+			t.Errorf("LeadScopeFilter() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("empty scope yields empty filter, never a match-all", func(t *testing.T) {
+		if got := LeadScopeFilter(nil); got != "" {
+			t.Errorf("LeadScopeFilter(nil) = %q, want empty", got)
+		}
+	})
+}
+
+func TestIsGroupInLeadScope(t *testing.T) {
+	cfg := enabledLeadConfig()
+	lead := []string{dnEngineeringLead}
+
+	inScope := []string{"engineering", "engineering-devs", "Engineering-QA", "engineering-lead"}
+	for _, cn := range inScope {
+		if !cfg.IsGroupInLeadScope(lead, cn) {
+			t.Errorf("IsGroupInLeadScope(%q) = false, want true", cn)
+		}
+	}
+
+	outOfScope := []string{"finance", "finance-team", "eng", "core-engineering"}
+	for _, cn := range outOfScope {
+		if cfg.IsGroupInLeadScope(lead, cn) {
+			t.Errorf("IsGroupInLeadScope(%q) = true, want false", cn)
+		}
+	}
+
+	if cfg.IsGroupInLeadScope([]string{dnEmployees}, "engineering") {
+		t.Error("a non-lead should have an empty scope matching nothing")
 	}
 }

@@ -19,6 +19,12 @@ interface AuthContextType {
    * not permitted to use them. The server-side check is the real enforcement.
    */
   canSearch: boolean;
+  /**
+   * Wildcard identifiers of the groups this user leads, empty for a non-lead. Drives
+   * whether the Team tab is offered; the server re-derives the scope on every request.
+   */
+  leadGroups: string[];
+  isLead: boolean;
   login: (credentials: LoginRequest) => Promise<{ success: boolean; message?: string; status?: number }>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -35,13 +41,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [canSearch, setCanSearch] = useState(false);
+  const [leadGroups, setLeadGroups] = useState<string[]>([]);
 
   const refreshSearchPermission = useCallback(async () => {
     try {
       const info = await api.getSessionInfo();
       setCanSearch(info?.canSearch ?? false);
+      setLeadGroups(info?.lead_group_membership ?? []);
     } catch {
       setCanSearch(false);
+      setLeadGroups([]);
     }
   }, []);
 
@@ -49,6 +58,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     if (!api.getSessionId()) {
       setUser(null);
       setCanSearch(false);
+      setLeadGroups([]);
       setIsLoading(false);
       return;
     }
@@ -63,12 +73,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setUser(null);
         setIsAuthenticated(false);
         setCanSearch(false);
+        setLeadGroups([]);
         api.setSessionId(null);
       }
     } catch {
       setUser(null);
       setIsAuthenticated(false);
       setCanSearch(false);
+      setLeadGroups([]);
       api.setSessionId(null);
     } finally {
       setIsLoading(false);
@@ -101,6 +113,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setUser(null);
       setIsAuthenticated(false);
       setCanSearch(false);
+      setLeadGroups([]);
       api.setSessionId(null);
     }
   };
@@ -112,6 +125,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
         isAuthenticated,
         isLoading,
         canSearch,
+        leadGroups,
+        isLead: leadGroups.length > 0,
         login,
         logout,
         refreshUser,

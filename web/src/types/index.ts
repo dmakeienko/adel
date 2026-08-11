@@ -126,6 +126,29 @@ export interface SessionInfo {
   createdAt: string;
   expiresAt: string;
   canSearch: boolean;
+  /**
+   * Wildcard identifiers (e.g. "CN=engineering-*") of the groups this user leads.
+   * Empty or absent for a user who is not a lead or PM.
+   */
+  lead_group_membership?: string[];
+}
+
+/** One group a lead is responsible for, with the users in it. */
+export interface TeamGroup {
+  group: Group;
+  members: GroupMember[];
+  /** The directory capped this group's member list. */
+  truncated?: boolean;
+}
+
+export interface TeamResponse {
+  success: boolean;
+  message?: string;
+  groups?: TeamGroup[];
+  /** Distinct users across all groups, so someone in two teams is counted once. */
+  memberCount: number;
+  lead_group_membership?: string[];
+  error?: string;
 }
 
 export interface GroupMembershipChange {
