@@ -104,8 +104,20 @@ config:
     searchBaseDN: ""
     excludedObjects: ""
     excludedGroups: ""
+    # Maximum entries any single LDAP search may return (applied as the LDAP size limit).
+    maxSearchResults: "200"
     # Semicolon-separated group CNs or DNs. Empty allows every authenticated user to search.
     searchAllowedGroups: ""
+    # Lead/PM scoping. Comma-separated CN suffixes marking a group whose members lead it,
+    # e.g. "-lead,-pm". Empty (the default) disables lead detection entirely.
+    #
+    # Restricting leads to their own teams needs BOTH this and searchAllowedGroups set:
+    # with searchAllowedGroups empty every authenticated user stays unrestricted, so
+    # suffixes alone derive roles (session, Team tab) without limiting what anyone sees.
+    leadGroupSuffixes: ""
+    # Replaces the matched suffix in the derived identifier: "engineering-lead" becomes
+    # "engineering-*". Only consulted when leadGroupSuffixes is set.
+    leadGroupWildcard: "-*"
     # Name of a Secret key holding the CA cert PEM, mounted at /certs/ca/ca.crt when set.
     caCertSecretName: ""
     caCertSecretKey: "ca.crt"

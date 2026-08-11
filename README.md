@@ -666,10 +666,28 @@ Key values (see [`charts/adel/values.yaml`](charts/adel/values.yaml) for the ful
 | `config.ad.server` / `config.ad.baseDN` | Required AD connection settings | `""` |
 | `tls.enabled` / `tls.secretName` | Terminate TLS in the Go server using a `kubernetes.io/tls` Secret | `false` |
 | `config.ad.caCertSecretName` | Secret containing a CA cert for LDAPS, mounted at `/certs/ca` | `""` |
+| `config.ad.maxSearchResults` | Cap on entries returned by any single LDAP search | `"200"` |
+| `config.ad.searchAllowedGroups` | Groups allowed to browse the directory; empty allows everyone | `""` |
+| `config.ad.leadGroupSuffixes` | CN suffixes enabling [lead scoping](#lead-scoping); empty disables it | `""` |
+| `config.ad.leadGroupWildcard` | Replaces the matched suffix in the derived identifier | `"-*"` |
 | `ingress.enabled` | Expose via Ingress | `false` |
 | `autoscaling.enabled` | Enable HPA | `false` |
 
 In most setups, leave `tls.enabled=false` and terminate TLS at the Ingress instead.
+
+To restrict leads and PMs to their own teams, set both scoping values — suffixes alone
+derive roles without limiting what anyone can see:
+
+```bash
+helm install adel adel/adel \
+  --set config.ad.server=dc1.example.com \
+  --set config.ad.baseDN="dc=example,dc=com" \
+  --set config.ad.searchAllowedGroups="Helpdesk" \
+  --set config.ad.leadGroupSuffixes="-lead\,-pm"
+```
+
+The comma in `leadGroupSuffixes` must be escaped on the `--set` command line, since Helm
+otherwise treats it as a list separator. In a values file it needs no escaping.
 
 ## Security Notes
 
