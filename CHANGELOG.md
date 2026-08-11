@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.5.0](https://github.com/dmakeienko/adel/compare/v1.4.0...v1.5.0) (2026-08-11)
+
+
+### Features
+
+* get and display product version ([3bdff43](https://github.com/dmakeienko/adel/commit/3bdff4378a7e44243795f5208b0ebe21a0be39b8))
+* inspect a group ([dac103d](https://github.com/dmakeienko/adel/commit/dac103d69f4b0c8ecb4a19e83933a1252cea48d5))
+
 ## [1.4.0](https://github.com/dmakeienko/adel/compare/v1.3.6...v1.4.0) (2026-08-11)
 
 
