@@ -116,3 +116,100 @@ describe('GroupMembership nested toggle', () => {
     expect(mutations).toBeLessThan(20);
   });
 });
+
+describe('GroupMembership cancel', () => {
+  const NEW_GROUP = {
+    dn: 'CN=Platform,OU=Groups,DC=example,DC=com',
+    cn: 'Platform',
+    sAMAccountName: 'Platform',
+    description: 'Platform team',
+  };
+
+  beforeEach(() => {
+    canSearch = true;
+    vi.mocked(api.resolveGroups).mockResolvedValue({
+      success: true,
+      count: 1,
+      groups: [
+        {
+          dn: DIRECT_DN,
+          cn: 'Engineering',
+          sAMAccountName: 'Engineering',
+          description: 'Engineers',
+        },
+      ],
+    });
+    vi.mocked(api.searchGroups).mockResolvedValue({
+      success: true,
+      count: 1,
+      groups: [NEW_GROUP],
+    });
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // Adds a group via the search box and returns once it is pending.
+  async function addPendingGroup() {
+    render(<GroupMembership user={user} />);
+    await screen.findByText('Engineering');
+
+    fireEvent.change(screen.getByPlaceholderText('Search groups to add...'), {
+      target: { value: 'plat' },
+    });
+
+    fireEvent.click(await screen.findByText('Platform team'));
+    await screen.findByText(/1 pending change/);
+  }
+
+  it('is disabled until there is something to cancel', async () => {
+    render(<GroupMembership user={user} />);
+    await screen.findByText('Engineering');
+
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+  });
+
+  it('removes a pending addition and its pending state', async () => {
+    await addPendingGroup();
+    expect(screen.getByText('Platform')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() => {
+      expect(screen.queryByText('Platform')).not.toBeInTheDocument();
+    });
+    expect(screen.queryByText(/pending change/)).not.toBeInTheDocument();
+    // Existing memberships must survive the discard.
+    expect(screen.getByText('Engineering')).toBeInTheDocument();
+  });
+
+  it('clears a pending removal without dropping the existing row', async () => {
+    render(<GroupMembership user={user} />);
+    await screen.findByText('Engineering');
+
+    fireEvent.click(screen.getByRole('checkbox'));
+    await screen.findByText(/1 pending change/);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() => {
+      expect(screen.queryByText(/pending change/)).not.toBeInTheDocument();
+    });
+    // An existing membership must be restored, not discarded as if it were newly added.
+    expect(screen.getByText('Engineering')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox')).toHaveAttribute('data-state', 'checked');
+  });
+
+  it('does not call the API when cancelling', async () => {
+    await addPendingGroup();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() => {
+      expect(screen.queryByText(/pending change/)).not.toBeInTheDocument();
+    });
+    expect(api.addUserToGroup).not.toHaveBeenCalled();
+    expect(api.removeUserFromGroup).not.toHaveBeenCalled();
+  });
+});

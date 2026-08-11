@@ -209,6 +209,30 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
     });
   }, [user.memberOf]);
 
+  // Discards every unsaved change. Rows added since the last save are dropped outright;
+  // rows that only had their checkbox toggled are restored to being a member, which is
+  // the state anything already in the table started from.
+  const handleCancel = () => {
+    if (pendingChanges.size === 0) return;
+
+    const added = new Set(
+      [...pendingChanges].filter(([, action]) => action === 'add').map(([cn]) => cn)
+    );
+    const addedButNotSaved = new Set(
+      [...added].filter(
+        (cn) =>
+          !user.memberOf?.some((dn) => extractCNFromDN(dn).toLowerCase() === cn.toLowerCase())
+      )
+    );
+
+    setGroups((prev) =>
+      prev
+        .filter((g) => !addedButNotSaved.has(g.group.cn))
+        .map((g) => (g.isMember ? g : { ...g, isMember: true }))
+    );
+    setPendingChanges(new Map());
+  };
+
   const handleSave = async () => {
     if (pendingChanges.size === 0) {
       showNotification('No changes to save', 'info');
@@ -453,6 +477,13 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
             disabled={isSaving || pendingChanges.size === 0}
           >
             {isSaving ? 'Saving...' : 'Save'}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleCancel}
+            disabled={isSaving || pendingChanges.size === 0}
+          >
+            Cancel
           </Button>
           {pendingChanges.size > 0 && (
             <span className="text-sm font-medium text-amber-700">
