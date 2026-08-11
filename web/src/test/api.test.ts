@@ -99,6 +99,74 @@ describe('ApiService', () => {
     });
   });
 
+  describe('getGroup', () => {
+    it('requests the group endpoint and returns the group with its members', async () => {
+      const mockResponse = {
+        data: {
+          success: true,
+          group: { dn: 'CN=Admins,DC=example,DC=com', cn: 'Admins', sAMAccountName: 'Admins' },
+          members: [{ dn: 'CN=Ann,DC=example,DC=com', cn: 'Ann', sAMAccountName: 'ann' }],
+          memberCount: 1,
+        },
+      };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (api as any).client.get.mockResolvedValueOnce(mockResponse);
+
+      const result = await api.getGroup('Admins');
+
+      expect(result.success).toBe(true);
+      expect(result.members).toHaveLength(1);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect((api as any).client.get).toHaveBeenCalledWith('/api/v1/groups/Admins');
+    });
+
+    // Group names routinely contain spaces and slashes, which must not break the path.
+    it('encodes the group name into the URL', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (api as any).client.get.mockResolvedValueOnce({
+        data: { success: true, memberCount: 0 },
+      });
+
+      await api.getGroup('Domain Admins/EU');
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect((api as any).client.get).toHaveBeenCalledWith(
+        '/api/v1/groups/Domain%20Admins%2FEU'
+      );
+    });
+
+    // The server's message (not found, not permitted) is what the page renders, so an
+    // error response must come back as data rather than throwing.
+    it('returns the error payload on an HTTP error response', async () => {
+      const axiosError = Object.assign(new Error('Forbidden'), {
+        isAxiosError: true,
+        response: {
+          status: 403,
+          data: { success: false, memberCount: 0, error: 'Search is not permitted for this user' },
+        },
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (api as any).client.get.mockRejectedValueOnce(axiosError);
+      vi.spyOn(axios, 'isAxiosError').mockReturnValueOnce(true);
+
+      const result = await api.getGroup('Admins');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/not permitted/i);
+    });
+
+    it('returns an error result when the request fails without a response', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (api as any).client.get.mockRejectedValueOnce(new Error('Network Error'));
+      vi.spyOn(axios, 'isAxiosError').mockReturnValueOnce(false);
+
+      const result = await api.getGroup('Admins');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Network Error');
+    });
+  });
+
   describe('getVersion', () => {
     it('returns the version reported by the backend', async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

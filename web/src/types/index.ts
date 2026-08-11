@@ -42,6 +42,27 @@ export interface Group {
   nested?: boolean;
 }
 
+export interface GroupMember {
+  dn: string;
+  cn: string;
+  sAMAccountName?: string;
+  displayName?: string;
+  mail?: string;
+  /** Member is itself a group, so it links to that group's page rather than a user page. */
+  isGroup?: boolean;
+}
+
+export interface GroupDetailResponse {
+  success: boolean;
+  message?: string;
+  group?: Group;
+  members?: GroupMember[];
+  memberCount: number;
+  /** The directory capped the member list, so more members exist than are shown. */
+  truncated?: boolean;
+  error?: string;
+}
+
 export interface LoginRequest {
   username: string;
   password: string;

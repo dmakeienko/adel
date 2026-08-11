@@ -1,8 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { GroupMembership } from '../components/GroupMembership';
 import type { User } from '../types';
 import api from '../services/api';
+
+// Group names render as links to the group page, so the component needs router context.
+const renderWithRouter = (ui: React.ReactElement) =>
+  render(<MemoryRouter>{ui}</MemoryRouter>);
 
 vi.mock('../services/api', () => ({
   default: {
@@ -65,7 +70,7 @@ describe('GroupMembership nested toggle', () => {
   });
 
   it('shows only direct groups by default', async () => {
-    render(<GroupMembership user={user} />);
+    renderWithRouter(<GroupMembership user={user} />);
 
     // Wait for the resolve call to settle before asserting on absence, otherwise the
     // nested row is merely late rather than filtered out.
@@ -76,7 +81,7 @@ describe('GroupMembership nested toggle', () => {
   });
 
   it('renders nested groups after switching to All without crashing', async () => {
-    render(<GroupMembership user={user} />);
+    renderWithRouter(<GroupMembership user={user} />);
 
     const allButton = await screen.findByRole('button', { name: /^All \(/ });
     fireEvent.click(allButton);
@@ -92,7 +97,7 @@ describe('GroupMembership nested toggle', () => {
   // hung the tab with RESULT_CODE_HUNG. A settled component should be quiet, so any
   // sustained DOM churn while idle means the loop is back.
   it('settles instead of re-rendering forever once loaded', async () => {
-    const { container } = render(<GroupMembership user={user} />);
+    const { container } = renderWithRouter(<GroupMembership user={user} />);
 
     fireEvent.click(await screen.findByRole('button', { name: /^All \(/ }));
     await waitFor(() => {
@@ -152,7 +157,7 @@ describe('GroupMembership cancel', () => {
 
   // Adds a group via the search box and returns once it is pending.
   async function addPendingGroup() {
-    render(<GroupMembership user={user} />);
+    renderWithRouter(<GroupMembership user={user} />);
     await screen.findByText('Engineering');
 
     fireEvent.change(screen.getByPlaceholderText('Search groups to add...'), {
@@ -164,7 +169,7 @@ describe('GroupMembership cancel', () => {
   }
 
   it('is disabled until there is something to cancel', async () => {
-    render(<GroupMembership user={user} />);
+    renderWithRouter(<GroupMembership user={user} />);
     await screen.findByText('Engineering');
 
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
@@ -185,7 +190,7 @@ describe('GroupMembership cancel', () => {
   });
 
   it('clears a pending removal without dropping the existing row', async () => {
-    render(<GroupMembership user={user} />);
+    renderWithRouter(<GroupMembership user={user} />);
     await screen.findByText('Engineering');
 
     fireEvent.click(screen.getByRole('checkbox'));

@@ -11,6 +11,7 @@ Active Directory Engagement Layer - A Go-based HTTPS server that provides REST A
 - **Active Directory Integration**: Connect to AD/LDAP servers with configurable settings
 - **User Management**: Get and edit user attributes
 - **Group Management**: List groups, add/remove users from groups
+- **Group Inspection**: Look up a single group and list its members, with nested groups linked rather than flattened
 - **Nested Group Resolution**: Optionally expand a user's indirect memberships, inherited through groups that are themselves members of other groups
 - **LDAP/LDAPS Support**: Connect via LDAP (389) or LDAPS (636) with optional CA certificates
 - **Session Management**: Automatic session cleanup and secure session handling
@@ -253,6 +254,69 @@ curl -k -X POST https://localhost:8080/api/v1/groups/remove-member \
   -d '{"username":"johndoe","groupName":"Developers"}'
 ```
 
+#### Inspect a Group
+
+Returns a single group by `cn` or `sAMAccountName`, together with its members. Gated by
+`AD_SEARCH_ALLOWED_GROUPS`, like `/groups`: it exposes directory contents beyond the
+caller's own memberships, so it is directory browsing rather than a lookup bounded by who
+the caller is.
+
+```bash
+curl -k "https://localhost:8080/api/v1/groups/Developers" \
+  -H "X-Session-ID: your-session-id"
+
+# Group names containing spaces or slashes must be URL-encoded
+curl -k "https://localhost:8080/api/v1/groups/Domain%20Admins" \
+  -H "X-Session-ID: your-session-id"
+```
+
+```json
+{
+  "success": true,
+  "group": {
+    "dn": "CN=Developers,OU=Groups,DC=example,DC=com",
+    "cn": "Developers",
+    "sAMAccountName": "Developers",
+    "description": "Engineering team"
+  },
+  "members": [
+    {
+      "dn": "CN=John Doe,OU=Users,DC=example,DC=com",
+      "cn": "John Doe",
+      "sAMAccountName": "johndoe",
+      "displayName": "John Doe",
+      "mail": "john.doe@example.com"
+    },
+    {
+      "dn": "CN=Platform,OU=Groups,DC=example,DC=com",
+      "cn": "Platform",
+      "isGroup": true
+    }
+  ],
+  "memberCount": 2
+}
+```
+
+Members are found by searching for entries whose `memberOf` points at the group, rather
+than by reading the group's own `member` attribute. That keeps it to a single search, lets
+the directory apply the size cap, and returns each member's attributes in the same round
+trip.
+
+Only **direct** members are listed. A member that is itself a group comes back as one
+entry flagged `"isGroup": true` rather than being flattened into its own members; in the
+UI that entry links through to that group's page.
+
+Results are capped by `AD_MAX_SEARCH_RESULTS`. When the directory truncates the list the
+response sets `"truncated": true`, and `memberCount` reflects what was returned rather
+than the group's true size. Groups and containers hidden by `AD_EXCLUDED_GROUPS` /
+`AD_EXCLUDED_OBJECTS` are filtered from the member list, and an excluded group reports
+`404` rather than `403`, so its existence is not disclosed.
+
+In the web UI this backs a **Groups** tab in the sidebar, where a group can be searched
+for and its members listed. Group names in the user's membership table are links to the
+same page. Both are hidden for sessions without search permission, so users are not
+offered a route that can only fail.
+
 #### Search (with custom Base DN)
 ```bash
 # GET request with query parameters
@@ -339,11 +403,16 @@ To hide specific groups from group listings and lookups:
 AD_EXCLUDED_GROUPS=Domain Admins;Schema Admins;Enterprise Admins
 ```
 
-To allow only members of selected AD groups to use the generic search endpoint:
+To allow only members of selected AD groups to use the directory-browsing endpoints:
 
 ```bash
 AD_SEARCH_ALLOWED_GROUPS=Helpdesk;CN=Directory Admins,OU=Groups,DC=example,DC=com
 ```
+
+This gates `/api/v1/search`, `/api/v1/groups` (group search) and
+`/api/v1/groups/{groupName}` (group inspection) — the endpoints that expose directory
+contents beyond the caller's own record. `/api/v1/groups/resolve` is deliberately not
+gated: it is bounded by the DNs the caller supplies.
 
 Group CN and DN matching is case-insensitive. Use a full DN when groups with the same CN exist in multiple OUs.
 
@@ -355,9 +424,10 @@ to direct `memberOf` values, which is logged at warning level.
 Memberships are resolved once at login and cached for the lifetime of the session, so
 group changes in AD take effect on the user's next login rather than immediately.
 
-Users outside the allow-list receive `403` from `/api/v1/search`, and the web UI hides the
-search field for them based on the `canSearch` field of `GET /api/v1/session`. The
-server-side check is the enforcement point; hiding the field is a convenience only.
+Users outside the allow-list receive `403` from those endpoints, and the web UI hides the
+search fields, the sidebar **Groups** tab and the group links in the membership table for
+them, based on the `canSearch` field of `GET /api/v1/session`. The server-side check is the
+enforcement point; hiding the controls is a convenience only.
 
 ### LDAPS Configuration
 

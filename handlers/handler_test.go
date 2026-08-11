@@ -17,10 +17,21 @@ import (
 	"adel/version"
 
 	"github.com/go-ldap/ldap/v3"
+	"github.com/gorilla/mux"
 )
 
-// testUsername is the session username shared by handler tests.
-const testUsername = "testuser"
+// Fixture values shared by handler tests.
+const (
+	testUsername      = "testuser"
+	testEmployeesDN   = "CN=Employees,OU=Groups,DC=example,DC=com"
+	testAdminsCN      = "Admins"
+	testMemberCN      = "Ann Lee"
+	testShortDN       = "CN=A,DC=x"
+	testBlank         = "   "
+	varKeyGroupName   = "groupName"
+	attrNameObjectCls = "objectClass"
+	classUser         = "user"
+)
 
 func TestIsUserEnabled(t *testing.T) {
 	tests := []struct {
@@ -292,7 +303,7 @@ func TestSearchForbiddenOutsideAllowedGroups(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/search?query=user", nil)
 	sess := &session.Session{
 		Username: testUsername,
-		MemberOf: []string{"CN=Employees,OU=Groups,DC=example,DC=com"},
+		MemberOf: []string{testEmployeesDN},
 	}
 	ctx := context.WithValue(req.Context(), middleware.SessionContextKey, sess)
 	rr := httptest.NewRecorder()
@@ -357,7 +368,7 @@ func TestGetAllGroupsForbiddenOutsideAllowedGroups(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/groups?query=infra", nil)
 	sess := &session.Session{
 		Username: testUsername,
-		MemberOf: []string{"CN=Employees,OU=Groups,DC=example,DC=com"},
+		MemberOf: []string{testEmployeesDN},
 	}
 	ctx := context.WithValue(req.Context(), middleware.SessionContextKey, sess)
 	rr := httptest.NewRecorder()
@@ -466,7 +477,7 @@ func TestNormalizeDNs(t *testing.T) {
 	}{
 		{
 			name:  "drops blank and malformed entries",
-			input: []string{"", "   ", "not-a-valid-dn", valid},
+			input: []string{"", testBlank, "not-a-valid-dn", valid},
 			limit: maxResolveDNs,
 			want:  []string{valid},
 		},
@@ -531,7 +542,7 @@ func TestNormalizeDNsRecordsAcceptedDNs(t *testing.T) {
 }
 
 func TestCountNonEmpty(t *testing.T) {
-	got := countNonEmpty([]string{"a", "", "   ", "b"})
+	got := countNonEmpty([]string{"a", "", testBlank, "b"})
 	if got != 2 {
 		t.Errorf("countNonEmpty() = %d, want 2", got)
 	}
@@ -545,7 +556,7 @@ func TestEntriesToGroupsProducesDirectGroups(t *testing.T) {
 	entry := &ldap.Entry{
 		DN: "CN=Admins,OU=Groups,DC=example,DC=com",
 		Attributes: []*ldap.EntryAttribute{
-			{Name: "cn", Values: []string{"Admins"}},
+			{Name: "cn", Values: []string{testAdminsCN}},
 			{Name: "description", Values: []string{"Administrators"}}, //nolint:goconst // test fixture data
 		},
 	}
@@ -555,11 +566,193 @@ func TestEntriesToGroupsProducesDirectGroups(t *testing.T) {
 	if len(groups) != 1 {
 		t.Fatalf("entriesToGroups() returned %d groups, want 1", len(groups))
 	}
-	if groups[0].CN != "Admins" || groups[0].Description != "Administrators" {
+	if groups[0].CN != testAdminsCN || groups[0].Description != "Administrators" {
 		t.Errorf("group = %+v, want cn=Admins description=Administrators", groups[0])
 	}
 	if groups[0].Nested {
 		t.Error("Nested = true, want false for a directly resolved group")
+	}
+}
+
+// Group inspection exposes directory contents beyond the caller's own memberships, so
+// it must sit behind the same allow-list as listing.
+func TestGetGroupForbiddenOutsideAllowedGroups(t *testing.T) {
+	cfg := &config.Config{
+		AD: config.ADConfig{
+			SearchAllowedGroups: []string{"infrastructure-services"},
+		},
+	}
+	h := NewHandler(cfg, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/groups/Admins", nil)
+	req = mux.SetURLVars(req, map[string]string{varKeyGroupName: testAdminsCN})
+	sess := &session.Session{
+		Username: testUsername,
+		MemberOf: []string{testEmployeesDN},
+	}
+	ctx := context.WithValue(req.Context(), middleware.SessionContextKey, sess)
+	rr := httptest.NewRecorder()
+
+	h.GetGroup(rr, req.WithContext(ctx))
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusForbidden)
+	}
+	var response models.GroupDetailResponse
+	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if response.Success || response.Error == "" {
+		t.Errorf("response = %+v, want unsuccessful response with an error", response)
+	}
+}
+
+func TestGetGroupRequiresSession(t *testing.T) {
+	h := NewHandler(&config.Config{}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/groups/Admins", nil)
+	req = mux.SetURLVars(req, map[string]string{varKeyGroupName: testAdminsCN})
+	rr := httptest.NewRecorder()
+
+	h.GetGroup(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusUnauthorized)
+	}
+}
+
+// A blank name must be rejected before any LDAP work, so a nil connection cannot panic.
+func TestGetGroupRejectsEmptyName(t *testing.T) {
+	h := NewHandler(&config.Config{}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/groups/%20", nil)
+	req = mux.SetURLVars(req, map[string]string{varKeyGroupName: testBlank})
+	sess := &session.Session{Username: testUsername}
+	ctx := context.WithValue(req.Context(), middleware.SessionContextKey, sess)
+	rr := httptest.NewRecorder()
+
+	h.GetGroup(rr, req.WithContext(ctx))
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestEntriesToGroupMembers(t *testing.T) {
+	h := NewHandler(&config.Config{}, nil)
+
+	entries := []*ldap.Entry{
+		{
+			DN: "CN=Zoe Smith,OU=Users,DC=example,DC=com",
+			Attributes: []*ldap.EntryAttribute{
+				{Name: "cn", Values: []string{"Zoe Smith"}},
+				{Name: "sAMAccountName", Values: []string{"zsmith"}},
+				{Name: "displayName", Values: []string{"Zoe Smith"}},
+				{Name: "mail", Values: []string{"zoe@example.com"}},
+				{Name: attrNameObjectCls, Values: []string{"top", "person", classUser}},
+			},
+		},
+		{
+			DN: "CN=Nested Group,OU=Groups,DC=example,DC=com",
+			Attributes: []*ldap.EntryAttribute{
+				{Name: "cn", Values: []string{"Nested Group"}},
+				{Name: attrNameObjectCls, Values: []string{"top", "group"}},
+			},
+		},
+	}
+
+	members := h.entriesToGroupMembers(entries)
+
+	if len(members) != 2 {
+		t.Fatalf("entriesToGroupMembers() returned %d members, want 2", len(members))
+	}
+	// Sorted by display label, so the group sorts ahead of "Zoe Smith".
+	if members[0].CN != "Nested Group" {
+		t.Errorf("members[0].CN = %q, want %q", members[0].CN, "Nested Group")
+	}
+	if !members[0].IsGroup {
+		t.Error("members[0].IsGroup = false, want true for a group member")
+	}
+	if members[1].IsGroup {
+		t.Error("members[1].IsGroup = true, want false for a user member")
+	}
+	if members[1].SAMAccountName != "zsmith" {
+		t.Errorf("members[1].SAMAccountName = %q, want %q", members[1].SAMAccountName, "zsmith")
+	}
+}
+
+// Excluded containers and groups must not leak through the member list.
+func TestEntriesToGroupMembersAppliesExclusions(t *testing.T) {
+	h := NewHandler(&config.Config{
+		AD: config.ADConfig{
+			ExcludedObjects: []string{"OU=Disabled"},
+			ExcludedGroups:  []string{"Secret Group"},
+		},
+	}, nil)
+
+	entries := []*ldap.Entry{
+		{
+			DN: "CN=Old User,OU=Disabled,DC=example,DC=com",
+			Attributes: []*ldap.EntryAttribute{
+				{Name: "cn", Values: []string{"Old User"}},
+				{Name: attrNameObjectCls, Values: []string{classUser}},
+			},
+		},
+		{
+			DN: "CN=Secret Group,OU=Groups,DC=example,DC=com",
+			Attributes: []*ldap.EntryAttribute{
+				{Name: "cn", Values: []string{"Secret Group"}},
+				{Name: attrNameObjectCls, Values: []string{"group"}},
+			},
+		},
+		{
+			DN: "CN=Ann Lee,OU=Users,DC=example,DC=com",
+			Attributes: []*ldap.EntryAttribute{
+				{Name: "cn", Values: []string{testMemberCN}},
+				{Name: attrNameObjectCls, Values: []string{classUser}},
+			},
+		},
+	}
+
+	members := h.entriesToGroupMembers(entries)
+
+	if len(members) != 1 {
+		t.Fatalf("entriesToGroupMembers() returned %d members, want 1", len(members))
+	}
+	if members[0].CN != testMemberCN {
+		t.Errorf("members[0].CN = %q, want %q", members[0].CN, testMemberCN)
+	}
+}
+
+func TestMemberLabel(t *testing.T) {
+	tests := []struct {
+		name   string
+		member *models.GroupMember
+		want   string
+	}{
+		{
+			name:   "prefers display name",
+			member: &models.GroupMember{DN: testShortDN, CN: "A", DisplayName: testMemberCN},
+			want:   testMemberCN,
+		},
+		{
+			name:   "falls back to CN",
+			member: &models.GroupMember{DN: testShortDN, CN: "A"},
+			want:   "A",
+		},
+		{
+			name:   "falls back to DN",
+			member: &models.GroupMember{DN: testShortDN},
+			want:   testShortDN,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := memberLabel(tt.member); got != tt.want {
+				t.Errorf("memberLabel() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 

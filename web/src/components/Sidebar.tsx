@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { User, Lock, LogOut } from 'lucide-react';
+import { User, Users, Lock, LogOut } from 'lucide-react';
 import api from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
@@ -8,7 +8,7 @@ import { Separator } from '@/components/ui/separator';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 
 export function Sidebar() {
-  const { user, logout, isAuthenticated } = useAuth();
+  const { user, logout, isAuthenticated, canSearch } = useAuth();
   const { showNotification } = useNotification();
   const navigate = useNavigate();
   const [version, setVersion] = useState<string | null>(null);
@@ -62,6 +62,24 @@ export function Sidebar() {
           <User className="w-5 h-5 shrink-0" />
           My Account
         </NavLink>
+
+        {/* Group browsing hits the same gated endpoints as search, so users without
+            that permission are not offered a tab that can only fail. */}
+        {canSearch && (
+          <NavLink
+            to="/groups"
+            className={({ isActive }) =>
+              `flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors no-underline ${
+                isActive
+                  ? 'bg-sidebar-accent text-sidebar-foreground'
+                  : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground'
+              }`
+            }
+          >
+            <Users className="w-5 h-5 shrink-0" />
+            Groups
+          </NavLink>
+        )}
 
         <NavLink
           to="/change-password"

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -28,6 +29,12 @@ const (
 	errMsgQueryRequired      = "A query or filter is required; listing all groups is not supported"
 	logKeyUserDN             = "userDN"
 
+	// objectClassGroup is the LDAP objectClass marking an entry as a group.
+	objectClassGroup = "group"
+	// logKeyGroup is the structured-logging key for a group name. Same spelling as
+	// objectClassGroup, but an unrelated concept, so it is derived rather than retyped.
+	logKeyGroup = objectClassGroup
+
 	// minGroupQueryLen mirrors the UI's debounce threshold. Shorter queries match
 	// most of the directory, which is the unbounded listing this endpoint refuses.
 	minGroupQueryLen = 2
@@ -41,6 +48,10 @@ const (
 // Deliberately excludes "member": on large groups that array holds every member DN
 // and dominates the response size, and no consumer of these endpoints reads it.
 var groupAttributes = []string{"dn", "cn", "sAMAccountName", "description", "groupType", "distinguishedName"} //nolint:goconst // LDAP schema attribute names, not app-level constants
+
+// groupMemberAttributes are the attributes read for each member of a group. objectClass
+// is included so member groups can be told apart from users and linked accordingly.
+var groupMemberAttributes = []string{"dn", "cn", "sAMAccountName", "displayName", "mail", "objectClass"} //nolint:goconst // LDAP schema attribute names, not app-level constants
 
 // Handler holds dependencies for HTTP handlers
 type Handler struct {
@@ -339,6 +350,180 @@ func (h *Handler) GetAllGroups(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GetGroup returns a single group by CN or sAMAccountName together with its members.
+// Gated by the same allow-list as GetAllGroups: it exposes directory contents beyond the
+// caller's own memberships, so it is a directory-browsing operation rather than a lookup
+// bounded by who the caller is.
+func (h *Handler) GetGroup(w http.ResponseWriter, r *http.Request) {
+	sess := middleware.GetSessionFromContext(r.Context())
+	if sess == nil {
+		writeJSON(w, http.StatusUnauthorized, models.GroupDetailResponse{
+			Success: false,
+			Error:   errMsgSessionNotFound,
+		})
+		return
+	}
+	if !h.config.AD.IsSearchAllowedFor(sess.MemberOf) {
+		slog.Warn("Group inspection denied: user is not a member of any allowed group",
+			"username", sess.Username,
+			logKeyUserDN, sess.UserDN,
+			"allowed_groups", h.config.AD.SearchAllowedGroups,
+			"user_group_count", len(sess.MemberOf),
+		)
+		writeJSON(w, http.StatusForbidden, models.GroupDetailResponse{
+			Success: false,
+			Error:   errMsgSearchNotPermitted,
+		})
+		return
+	}
+
+	groupName := strings.TrimSpace(mux.Vars(r)["groupName"])
+	if groupName == "" {
+		writeJSON(w, http.StatusBadRequest, models.GroupDetailResponse{
+			Success: false,
+			Error:   "Group name is required",
+		})
+		return
+	}
+
+	group, err := h.findGroup(sess.Conn, groupName)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, models.GroupDetailResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Group not found: %v", err),
+		})
+		return
+	}
+
+	// Member lookup is supplementary: a group that exists but whose members cannot be
+	// read should still render, so a failure here degrades to an empty member list.
+	members, truncated, err := h.findGroupMembers(sess.Conn, group.DN)
+	if err != nil {
+		slog.Warn("Failed to list group members",
+			"username", sess.Username, "group", group.CN, "error", err)
+		members = []*models.GroupMember{}
+	}
+
+	writeJSON(w, http.StatusOK, models.GroupDetailResponse{
+		Success:     true,
+		Group:       group,
+		Members:     members,
+		MemberCount: len(members),
+		Truncated:   truncated,
+	})
+}
+
+// findGroup looks up one group by CN or sAMAccountName.
+func (h *Handler) findGroup(conn *ldap.Conn, groupName string) (*models.Group, error) {
+	escaped := ldap.EscapeFilter(groupName)
+	searchReq := ldap.NewSearchRequest(
+		h.config.AD.GetSearchBaseDN(),
+		ldap.ScopeWholeSubtree,
+		ldap.NeverDerefAliases,
+		1, 0, false,
+		fmt.Sprintf("(&%s(|(cn=%s)(sAMAccountName=%s)))", h.config.AD.GroupFilter, escaped, escaped),
+		groupAttributes,
+		nil,
+	)
+
+	sr, err := conn.Search(searchReq)
+	if err != nil {
+		return nil, err
+	}
+	if len(sr.Entries) == 0 {
+		return nil, fmt.Errorf("group not found")
+	}
+
+	// entriesToGroups applies the exclusion lists, so an excluded group comes back empty
+	// and is reported as missing rather than being revealed as "forbidden".
+	groups := h.entriesToGroups(sr.Entries)
+	if len(groups) == 0 {
+		return nil, fmt.Errorf("group not found")
+	}
+	return groups[0], nil
+}
+
+// findGroupMembers lists the direct members of a group. It searches for entries whose
+// memberOf points at the group rather than reading the group's own "member" attribute,
+// so the directory applies the size limit and returns each member's attributes in the
+// same round trip. Nested members are not expanded: a member group is returned as one
+// entry, which the UI links to that group's own page.
+//
+// The bool reports whether the directory capped the result at MaxSearchResults.
+func (h *Handler) findGroupMembers(conn *ldap.Conn, groupDN string) ([]*models.GroupMember, bool, error) {
+	limit := h.config.AD.MaxSearchResults
+	searchReq := ldap.NewSearchRequest(
+		h.config.AD.GetSearchBaseDN(),
+		ldap.ScopeWholeSubtree,
+		ldap.NeverDerefAliases,
+		limit, 0, false,
+		fmt.Sprintf("(memberOf=%s)", ldap.EscapeFilter(groupDN)),
+		groupMemberAttributes,
+		nil,
+	)
+
+	sr, err := conn.Search(searchReq)
+	if err != nil {
+		// A size-limit-exceeded result still carries the entries gathered so far, so it
+		// is reported as a truncated success rather than an outright failure.
+		if ldap.IsErrorWithCode(err, ldap.LDAPResultSizeLimitExceeded) && sr != nil {
+			return h.entriesToGroupMembers(sr.Entries), true, nil
+		}
+		return nil, false, err
+	}
+
+	members := h.entriesToGroupMembers(sr.Entries)
+	return members, limit > 0 && len(sr.Entries) >= limit, nil
+}
+
+// entriesToGroupMembers maps member entries to models, dropping excluded containers.
+func (h *Handler) entriesToGroupMembers(entries []*ldap.Entry) []*models.GroupMember {
+	members := make([]*models.GroupMember, 0, len(entries))
+	for _, entry := range entries {
+		if h.isExcludedDN(entry.DN) {
+			continue
+		}
+
+		isGroup := false
+		for _, class := range entry.GetAttributeValues("objectClass") {
+			if strings.EqualFold(class, objectClassGroup) {
+				isGroup = true
+				break
+			}
+		}
+
+		cn := entry.GetAttributeValue("cn")
+		if isGroup && h.isExcludedGroup(cn, entry.DN) {
+			continue
+		}
+
+		members = append(members, &models.GroupMember{
+			DN:             entry.DN,
+			CN:             cn,
+			SAMAccountName: entry.GetAttributeValue("sAMAccountName"),
+			DisplayName:    entry.GetAttributeValue("displayName"),
+			Email:          entry.GetAttributeValue("mail"),
+			IsGroup:        isGroup,
+		})
+	}
+
+	sort.Slice(members, func(i, j int) bool {
+		return strings.ToLower(memberLabel(members[i])) < strings.ToLower(memberLabel(members[j]))
+	})
+	return members
+}
+
+// memberLabel is the name a member is sorted and displayed by.
+func memberLabel(m *models.GroupMember) string {
+	if m.DisplayName != "" {
+		return m.DisplayName
+	}
+	if m.CN != "" {
+		return m.CN
+	}
+	return m.DN
+}
+
 // entriesToGroups maps LDAP entries to group models, dropping excluded containers and
 // groups. Members and MemberOf are intentionally left unset: groupAttributes does not
 // request them, since they are unused here and costly on large groups.
@@ -589,7 +774,7 @@ func (h *Handler) AddUserToGroup(w http.ResponseWriter, r *http.Request) {
 		logLDAPError("AddUserToGroup", err, map[string]string{
 			"username":   req.Username,
 			logKeyUserDN: userDN,
-			"group":      req.GroupName,
+			logKeyGroup:  req.GroupName,
 			"groupDN":    groupDN,
 		})
 
@@ -695,7 +880,7 @@ func (h *Handler) RemoveUserFromGroup(w http.ResponseWriter, r *http.Request) {
 		logLDAPError("RemoveUserFromGroup", err, map[string]string{
 			"username":   req.Username,
 			logKeyUserDN: userDN,
-			"group":      req.GroupName,
+			logKeyGroup:  req.GroupName,
 			"groupDN":    groupDN,
 		})
 

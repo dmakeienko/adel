@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import {
   useReactTable,
@@ -274,9 +275,21 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
     {
       accessorKey: 'group.cn',
       header: 'Name',
-      cell: ({ row }) => (
-        <span className="font-medium text-foreground">{row.original.group.cn}</span>
-      ),
+      cell: ({ row }) => {
+        // The group page reads the same gated endpoints as search, so users without
+        // that permission get plain text rather than a link into a 403.
+        if (!canSearch) {
+          return <span className="font-medium text-foreground">{row.original.group.cn}</span>;
+        }
+        return (
+          <Link
+            to={`/group/${encodeURIComponent(row.original.group.cn)}`}
+            className="font-medium text-primary hover:underline"
+          >
+            {row.original.group.cn}
+          </Link>
+        );
+      },
     },
     {
       accessorKey: 'group.description',
@@ -335,7 +348,7 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
         );
       },
     },
-  ], [toggleMembership]);
+  ], [toggleMembership, canSearch]);
 
   // groups always holds both kinds; the toggle only narrows what is rendered, so
   // flipping it is instant and the search dedupe below still sees nested memberships.

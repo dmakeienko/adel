@@ -4,6 +4,7 @@ import { NotificationProvider } from './contexts/NotificationContext';
 import { NotificationBanner } from './components/NotificationBanner';
 import { LoginPage } from './pages/LoginPage';
 import { UserPage } from './pages/UserPage';
+import { GroupPage } from './pages/GroupPage';
 import { ChangePasswordPage } from './pages/ChangePasswordPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -45,6 +46,24 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <UserPage />
+          </ProtectedRoute>
+        }
+      />
+      {/* Both paths render the same page: without a name it is the browse/search
+          landing state, with one it shows that group and its members. */}
+      <Route
+        path="/groups"
+        element={
+          <ProtectedRoute>
+            <GroupPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/group/:groupName"
+        element={
+          <ProtectedRoute>
+            <GroupPage />
           </ProtectedRoute>
         }
       />

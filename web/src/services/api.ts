@@ -4,6 +4,7 @@ import type {
   LoginResponse,
   UserResponse,
   GroupsResponse,
+  GroupDetailResponse,
   APIResponse,
   SearchResponse,
   SessionInfo,
@@ -121,6 +122,26 @@ class ApiService {
       { dns, nested }
     );
     return response.data;
+  }
+
+  // Fetches one group along with its members. Errors are returned as data rather than
+  // thrown, so callers can render the server's message (not found, not permitted).
+  async getGroup(groupName: string): Promise<GroupDetailResponse> {
+    try {
+      const response = await this.client.get<GroupDetailResponse>(
+        `/api/v1/groups/${encodeURIComponent(groupName)}`
+      );
+      return response.data;
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.data) {
+        return error.response.data as GroupDetailResponse;
+      }
+      return {
+        success: false,
+        memberCount: 0,
+        error: error instanceof Error ? error.message : 'Unknown error occurred',
+      };
+    }
   }
 
   async searchGroups(query: string): Promise<GroupsResponse> {

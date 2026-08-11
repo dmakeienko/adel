@@ -145,6 +145,30 @@ type ResolveGroupsRequest struct {
 	Nested bool `json:"nested,omitempty"`
 }
 
+// GroupMember is a single member of a group. Groups can contain users, contacts and
+// other groups, so IsGroup tells the UI whether the entry can be linked to a user page.
+type GroupMember struct {
+	DN             string `json:"dn"`
+	CN             string `json:"cn"`
+	SAMAccountName string `json:"sAMAccountName,omitempty"`
+	DisplayName    string `json:"displayName,omitempty"`
+	Email          string `json:"mail,omitempty"`
+	IsGroup        bool   `json:"isGroup,omitempty"`
+}
+
+// GroupDetailResponse represents a single group together with its members.
+type GroupDetailResponse struct {
+	Success bool           `json:"success"`
+	Message string         `json:"message,omitempty"`
+	Group   *Group         `json:"group,omitempty"`
+	Members []*GroupMember `json:"members,omitempty"`
+	// MemberCount is the number of members returned. It can be lower than the group's
+	// true size when the directory caps the result at MaxSearchResults; Truncated says so.
+	MemberCount int    `json:"memberCount"`
+	Truncated   bool   `json:"truncated,omitempty"`
+	Error       string `json:"error,omitempty"`
+}
+
 // GroupsResponse represents groups list response
 type GroupsResponse struct {
 	Success bool     `json:"success"`

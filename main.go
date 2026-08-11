@@ -179,6 +179,9 @@ func setupRouter(handler *handlers.Handler, sessionMgr *session.Manager, cfg *co
 	protected.HandleFunc("/groups/resolve", handler.ResolveGroups).Methods(http.MethodPost)
 	protected.HandleFunc("/groups/add-member", handler.AddUserToGroup).Methods(http.MethodPost)
 	protected.HandleFunc("/groups/remove-member", handler.RemoveUserFromGroup).Methods(http.MethodPost, http.MethodDelete)
+	// Registered after the literal /groups/* routes above so those keep precedence over
+	// the wildcard, which would otherwise swallow "resolve", "add-member" and friends.
+	protected.HandleFunc("/groups/{groupName}", handler.GetGroup).Methods(http.MethodGet)
 
 	// Search route
 	protected.HandleFunc("/search", handler.Search).Methods(http.MethodGet, http.MethodPost)
