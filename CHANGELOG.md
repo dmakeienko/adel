@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.6.1](https://github.com/dmakeienko/adel/compare/v1.6.0...v1.6.1) (2026-08-18)
+
+
+### Bug Fixes
+
+* resolve nested groups for viewed user ([7a7d8f4](https://github.com/dmakeienko/adel/commit/7a7d8f4d9247606b854f3bd28635eafd739a09e6))
+
+
+### Chores
+
+* bump go to 1.26.6 ([90d58b9](https://github.com/dmakeienko/adel/commit/90d58b9220f32aeaad396ef48f5656a165718ed0))
+
 ## [1.6.0](https://github.com/dmakeienko/adel/compare/v1.5.0...v1.6.0) (2026-08-11)
 
 
