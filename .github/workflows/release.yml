@@ -57,6 +57,7 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GORELEASER_CURRENT_TAG: ${{ needs.release_please.outputs.tag_name }}
 
   docker-publish:
     name: Build and Push Docker Image
