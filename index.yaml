@@ -22,7 +22,7 @@ entries:
     created: "2026-08-11T13:09:07.004984332Z"
     description: Active Directory Engagement Layer - REST API + UI for Active Directory
       over LDAP/LDAPS
-    digest: 4243bfcfeba3599d7c4760b68845b5935a6af15492719e4d45f86fc7be5254c2
+    digest: 669cc190898a6cd1abdb1fce1fe2dc61222031b6589bab1687b22bc9098bdf1c
     home: https://github.com/dmakeienko/adel
     maintainers:
     - name: dmakeienko
@@ -38,7 +38,7 @@ entries:
     created: "2026-08-11T10:13:37.91834649Z"
     description: Active Directory Engagement Layer - REST API + UI for Active Directory
       over LDAP/LDAPS
-    digest: 667150b3eddaa921f00b13ae5a461b0e2937050f2f24945a83a7d3a13ad88d27
+    digest: b23d529984ced71bdc543f80d8997aab807bc6d2639e54e706711e49cd21a6e3
     home: https://github.com/dmakeienko/adel
     maintainers:
     - name: dmakeienko
@@ -54,7 +54,7 @@ entries:
     created: "2026-08-11T07:30:53.35903591Z"
     description: Active Directory Engagement Layer - REST API + UI for Active Directory
       over LDAP/LDAPS
-    digest: d8412c1913a597681784550baff41c1e421e552134d5537882dc41fc4c9c921f
+    digest: 9d4c2402035d311ee55bbd17014c542dc1d3aa6d7fad4b29cc89e45bff181ca1
     home: https://github.com/dmakeienko/adel
     maintainers:
     - name: dmakeienko
@@ -70,7 +70,7 @@ entries:
     created: "2026-08-10T10:05:18.76092677Z"
     description: Active Directory Engagement Layer - REST API + UI for Active Directory
       over LDAP/LDAPS
-    digest: af198e1f78435c49d7f72f565d77495912e3c6d4364057a25dfd53e311680177
+    digest: 370cd05fb02d928ffaacfbee5cb500a5af86b8e849adfefa4dd72d6a8cee292c
     home: https://github.com/dmakeienko/adel
     maintainers:
     - name: dmakeienko
@@ -86,7 +86,7 @@ entries:
     created: "2026-07-01T10:29:34.90525369Z"
     description: Active Directory Engagement Layer - REST API + UI for Active Directory
       over LDAP/LDAPS
-    digest: 94bad53c9d726bf57c928e041afe99bfb5be2be3789528ab7c5df29832ec296b
+    digest: 23fb69614e05fb80d3c7e602f49054bab3152d096bf25d6b47f199a20cfbb074
     home: https://github.com/dmakeienko/adel-backend
     maintainers:
     - name: dmakeienko
@@ -102,7 +102,7 @@ entries:
     created: "2026-07-01T09:57:52.175275317Z"
     description: Active Directory Engagement Layer - REST API + UI for Active Directory
       over LDAP/LDAPS
-    digest: ca489ebdb49a0d5ad89485cbefd44356dce38c49183135e320e7cb645ffa15b1
+    digest: 03c27ef8e8898f69acef41e54b130439f4824a6af50a4526dfda728c9f14f350
     home: https://github.com/dmakeienko/adel-backend
     maintainers:
     - name: dmakeienko
@@ -118,7 +118,7 @@ entries:
     created: "2026-07-01T09:00:37.615455794Z"
     description: Active Directory Engagement Layer - REST API + UI for Active Directory
       over LDAP/LDAPS
-    digest: ffe5397b9453dd2c98133eb7fb5d5293bb176bf6921bc02a2a6e76af144a4de8
+    digest: 713a0865e0178093ce47aa0710def4c328104582a94ddd5f39c2e9eb76d3f888
     home: https://github.com/dmakeienko/adel-backend
     maintainers:
     - name: dmakeienko
@@ -134,7 +134,7 @@ entries:
     created: "2026-07-01T08:50:56.112209948Z"
     description: Active Directory Engagement Layer - REST API + UI for Active Directory
       over LDAP/LDAPS
-    digest: f52bb1d85ae679b0b49dd266338be816de35b344698d62e42138d0f4f807a1e9
+    digest: 3e3a057e68ee9b14cba98a236c77f74c5730dac1c8b4657aad0145d13dcc1935
     home: https://github.com/dmakeienko/adel-backend
     maintainers:
     - name: dmakeienko
