@@ -227,10 +227,11 @@ The transitive set is computed by the directory in a single extra search, using 
 hierarchy walk, so nesting depth and membership cycles are the server's problem, not
 ours. Results are capped by `AD_MAX_SEARCH_RESULTS`.
 
-The expansion resolves memberships for the **session's own user**, so `nested: true` is
-only meaningful when the supplied DNs are that user's groups. Directories that do not
-implement the matching rule return nothing extra, and the response degrades to the
-directly requested groups rather than failing.
+The expansion starts from the supplied direct group DNs, so it resolves memberships for
+whichever user those DNs belong to. This keeps another user's profile independent from
+the authenticated user's memberships. Directories that do not implement the matching
+rule return nothing extra, and the response degrades to the directly requested groups
+rather than failing.
 
 In the web UI, the group membership table requests nested groups and labels them with a
 `nested` badge. A **Direct only / All** toggle controls whether they are listed,

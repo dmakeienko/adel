@@ -296,6 +296,31 @@ func NestedGroupFilter(groupFilter, userDN string) string {
 		groupFilter, matchingRuleInChain, ldap.EscapeFilter(userDN))
 }
 
+// NestedGroupFilterForMembers builds a filter matching every group that contains any
+// of memberDNs at any depth. A member DN may identify either a user or a group; using
+// the direct group DNs from a viewed user therefore finds that user's parent groups
+// without tying the result to the authenticated session.
+//
+// Callers should pass at least one DN. An empty input deliberately matches nothing.
+func NestedGroupFilterForMembers(groupFilter string, memberDNs []string) string {
+	if len(memberDNs) == 0 {
+		return fmt.Sprintf("(&%s(!(objectClass=*)))", groupFilter)
+	}
+
+	clauses := make([]string, 0, len(memberDNs))
+	for _, memberDN := range memberDNs {
+		clauses = append(clauses, fmt.Sprintf("(member:%s:=%s)",
+			matchingRuleInChain, ldap.EscapeFilter(memberDN)))
+	}
+
+	membershipFilter := clauses[0]
+	if len(clauses) > 1 {
+		membershipFilter = "(|" + strings.Join(clauses, "") + ")"
+	}
+
+	return fmt.Sprintf("(&%s%s)", groupFilter, membershipFilter)
+}
+
 // findNestedGroups returns the DNs of every group the user belongs to, including
 // groups reached indirectly through nested group membership. It relies on the AD
 // matching-rule-in-chain extension; directories that do not implement it return no

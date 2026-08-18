@@ -80,6 +80,14 @@ describe('GroupMembership nested toggle', () => {
     expect(screen.queryByText('All Staff')).not.toBeInTheDocument();
   });
 
+  it('resolves memberships from the user being viewed', async () => {
+    renderWithRouter(<GroupMembership user={user} />);
+
+    await waitFor(() => {
+      expect(api.resolveGroups).toHaveBeenCalledWith(user.memberOf, true);
+    });
+  });
+
   it('renders nested groups after switching to All without crashing', async () => {
     renderWithRouter(<GroupMembership user={user} />);
 

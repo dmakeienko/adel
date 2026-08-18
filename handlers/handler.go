@@ -737,7 +737,7 @@ func (h *Handler) ResolveGroups(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Nested {
-		groups = h.appendNestedGroups(sess, groups, seen)
+		groups = h.appendNestedGroups(sess, groups, dns, seen)
 	}
 
 	writeJSON(w, http.StatusOK, models.GroupsResponse{
@@ -747,23 +747,15 @@ func (h *Handler) ResolveGroups(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// appendNestedGroups adds the groups the session's user belongs to indirectly. The
-// directory computes the transitive closure in a single search via matching-rule-in-chain,
-// so there is no hierarchy to walk here: anything it returns that was not among the
-// directly requested DNs is an inherited membership.
+// appendNestedGroups adds the parent groups reached from the directly requested group
+// DNs. The directory computes the transitive closure in a single search via
+// matching-rule-in-chain, so the result belongs to the user whose direct memberships
+// were supplied rather than implicitly belonging to the authenticated session user.
 //
 // Failures are not fatal — nested groups are supplementary, so a directory that does not
 // support the matching rule degrades to the direct list rather than failing the request.
-func (h *Handler) appendNestedGroups(sess *session.Session, direct []*models.Group, seen map[string]struct{}) []*models.Group {
-	searchReq := ldap.NewSearchRequest(
-		h.config.AD.GetSearchBaseDN(),
-		ldap.ScopeWholeSubtree,
-		ldap.NeverDerefAliases,
-		h.config.AD.MaxSearchResults, 0, false,
-		session.NestedGroupFilter(h.config.AD.GroupFilter, sess.UserDN),
-		groupAttributes,
-		nil,
-	)
+func (h *Handler) appendNestedGroups(sess *session.Session, direct []*models.Group, directDNs []string, seen map[string]struct{}) []*models.Group {
+	searchReq := h.nestedGroupSearchRequest(directDNs)
 
 	sr, err := sess.Conn.Search(searchReq)
 	if err != nil {
@@ -782,6 +774,21 @@ func (h *Handler) appendNestedGroups(sess *session.Session, direct []*models.Gro
 		all = append(all, g)
 	}
 	return all
+}
+
+// nestedGroupSearchRequest builds the target-aware LDAP request separately so its
+// filter can be regression-tested without requiring a live directory connection.
+func (h *Handler) nestedGroupSearchRequest(directDNs []string) *ldap.SearchRequest {
+	searchReq := ldap.NewSearchRequest(
+		h.config.AD.GetSearchBaseDN(),
+		ldap.ScopeWholeSubtree,
+		ldap.NeverDerefAliases,
+		h.config.AD.MaxSearchResults, 0, false,
+		session.NestedGroupFilterForMembers(h.config.AD.GroupFilter, directDNs),
+		groupAttributes,
+		nil,
+	)
+	return searchReq
 }
 
 // resolveGroupDNs looks up the given DNs in a single search and maps them to group
