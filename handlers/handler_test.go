@@ -559,7 +559,7 @@ func TestGetAllGroupsForbiddenOutsideAllowedGroups(t *testing.T) {
 func TestGetAllGroupsRejectsUnboundedListing(t *testing.T) {
 	// An allowed user must still not be able to list the whole directory: the query
 	// requirement is a cost control, independent of the search allow-list.
-	cfg := &config.Config{AD: config.ADConfig{GroupFilter: "(objectClass=group)"}}
+	cfg := &config.Config{AD: config.ADConfig{GroupFilter: "(objectClass=group)"}} //nolint:goconst // lDAP field
 	h := NewHandler(cfg, nil)
 
 	tests := []struct {
@@ -933,5 +933,26 @@ func TestNestedGroupFilter(t *testing.T) {
 	const want = "(&(objectClass=group)(member:1.2.840.113556.1.4.1941:=CN=Bob \\28Admin\\29,DC=example,DC=com))"
 	if got != want {
 		t.Errorf("NestedGroupFilter() =\n  %q\nwant\n  %q", got, want)
+	}
+}
+
+// Regression: nested membership must be anchored to the direct groups of the user
+// being viewed. The authenticated user's DN must not influence this LDAP request.
+func TestNestedGroupSearchRequestUsesViewedUsersGroups(t *testing.T) {
+	h := NewHandler(&config.Config{AD: config.ADConfig{
+		BaseDN:           "DC=example,DC=com",
+		GroupFilter:      "(objectClass=group)",
+		MaxSearchResults: 200,
+	}}, nil)
+	targetGroups := []string{
+		"CN=Target Engineering,OU=Groups,DC=example,DC=com",
+		"CN=Target Support,OU=Groups,DC=example,DC=com",
+	}
+
+	request := h.nestedGroupSearchRequest(targetGroups)
+
+	const want = "(&(objectClass=group)(|(member:1.2.840.113556.1.4.1941:=CN=Target Engineering,OU=Groups,DC=example,DC=com)(member:1.2.840.113556.1.4.1941:=CN=Target Support,OU=Groups,DC=example,DC=com)))"
+	if request.Filter != want {
+		t.Errorf("nested group filter =\n  %q\nwant\n  %q", request.Filter, want)
 	}
 }
