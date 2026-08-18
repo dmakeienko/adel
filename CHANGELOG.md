@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.6.2](https://github.com/dmakeienko/adel/compare/v1.6.1...v1.6.2) (2026-08-18)
+
+
+### Bug Fixes
+
+* maintance release to fix tagging and release ([cb1fc4b](https://github.com/dmakeienko/adel/commit/cb1fc4b39c1fc90876feb312d098314f04ec9532))
+
+
+### CI/CD
+
+* fix release pipeline by expecting main branch ([046523f](https://github.com/dmakeienko/adel/commit/046523fc7382801e693522d1e80caf536dadda9a))
+
 ## [1.6.1](https://github.com/dmakeienko/adel/compare/v1.6.0...v1.6.1) (2026-08-18)
 
 
