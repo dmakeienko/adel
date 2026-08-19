@@ -234,6 +234,9 @@ type SessionInfo struct {
 	// CanSearch reports whether this session may use the search endpoint. It lets the
 	// UI hide search controls; the server-side check remains the enforcement point.
 	CanSearch bool `json:"canSearch"`
+	// CanResetPassword reports whether this session may use the privileged password
+	// reset endpoint. It controls UI visibility only; the endpoint checks again.
+	CanResetPassword bool `json:"canResetPassword"`
 	// LeadGroupMembership holds the wildcard identifiers of the groups in which this
 	// user is a lead or PM, so the UI can scope its search view to them. Empty when the
 	// user holds no such role.
@@ -242,7 +245,12 @@ type SessionInfo struct {
 
 // ChangeUserPasswordRequest represents a password change request
 type ChangeUserPasswordRequest struct {
-	Username    string `json:"username,omitempty"`
 	OldPassword string `json:"oldPassword"`
+	NewPassword string `json:"newPassword"`
+}
+
+// ResetUserPasswordRequest represents a privileged password reset request.
+// The target username is carried in the URL and never accepted from this body.
+type ResetUserPasswordRequest struct {
 	NewPassword string `json:"newPassword"`
 }

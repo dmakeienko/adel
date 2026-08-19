@@ -1,22 +1,16 @@
 import { useState, useMemo } from 'react';
 import { Navigate } from 'react-router-dom';
-import { Eye, EyeOff, CheckCircle2, XCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
 import { Sidebar } from '../components/Sidebar';
+import { PasswordInput } from '../components/PasswordInput';
+import { PasswordRequirements } from '../components/PasswordRequirements';
+import { isPasswordComplex, validatePassword } from '../lib/password';
 import { api } from '../services/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-
-interface PasswordValidation {
-  minLength: boolean;
-  hasNumber: boolean;
-  hasCapital: boolean;
-  hasSpecial: boolean;
-  isDifferentFromOld: boolean;
-}
 
 export function ChangePasswordPage() {
   const { user, isAuthenticated, isLoading } = useAuth();
@@ -24,29 +18,15 @@ export function ChangePasswordPage() {
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [showOldPassword, setShowOldPassword] = useState(false);
-  const [showNewPassword, setShowNewPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const showValidation = newPassword.length > 0;
 
-  const validation = useMemo<PasswordValidation>(() => {
-    if (!newPassword) {
-      return { minLength: false, hasNumber: false, hasCapital: false, hasSpecial: false, isDifferentFromOld: true };
-    }
-    return {
-      minLength: newPassword.length >= 9,
-      hasNumber: /\d/.test(newPassword),
-      hasCapital: /[A-Z]/.test(newPassword),
-      hasSpecial: /[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(newPassword),
-      isDifferentFromOld: oldPassword === '' || newPassword !== oldPassword,
-    };
-  }, [newPassword, oldPassword]);
+  const validation = useMemo(() => validatePassword(newPassword), [newPassword]);
+  const isDifferentFromOld = oldPassword === '' || newPassword !== oldPassword;
 
   const isPasswordValid = () =>
-    validation.minLength && validation.hasNumber && validation.hasCapital &&
-    validation.hasSpecial && validation.isDifferentFromOld;
+    isPasswordComplex(validation) && isDifferentFromOld;
 
   const isFormValid = () =>
     oldPassword.trim() !== '' && newPassword.trim() !== '' &&
@@ -121,8 +101,7 @@ export function ChangePasswordPage() {
                     id="oldPassword"
                     value={oldPassword}
                     onChange={setOldPassword}
-                    show={showOldPassword}
-                    onToggle={() => setShowOldPassword(!showOldPassword)}
+                    autoComplete="current-password"
                   />
                 </div>
 
@@ -133,24 +112,18 @@ export function ChangePasswordPage() {
                     id="newPassword"
                     value={newPassword}
                     onChange={setNewPassword}
-                    show={showNewPassword}
-                    onToggle={() => setShowNewPassword(!showNewPassword)}
                   />
                 </div>
 
                 {/* Requirements */}
                 {showValidation && (
-                  <div className="p-4 bg-muted rounded-lg border border-border space-y-2">
-                    <p className="text-sm font-semibold text-foreground">Password must contain:</p>
-                    <ul className="space-y-2">
-                      <RequirementItem met={validation.minLength} label="At least 9 characters" />
-                      <RequirementItem met={validation.hasNumber} label="At least one number" />
-                      <RequirementItem met={validation.hasCapital} label="At least one capital letter" />
-                      <RequirementItem met={validation.hasSpecial} label="At least one special character" />
-                      <RequirementItem met={validation.isDifferentFromOld} label="Cannot match your current password" />
-                      <RequirementItem met={validation.isDifferentFromOld} label="Cannot match any of your last 25 passwords" />
-                    </ul>
-                  </div>
+                  <PasswordRequirements
+                    validation={validation}
+                    additionalRequirements={[
+                      { met: isDifferentFromOld, label: 'Cannot match your current password' },
+                      { met: isDifferentFromOld, label: 'Cannot match any of your last 25 passwords' },
+                    ]}
+                  />
                 )}
 
                 {/* Confirm password */}
@@ -160,8 +133,6 @@ export function ChangePasswordPage() {
                     id="confirmPassword"
                     value={confirmPassword}
                     onChange={setConfirmPassword}
-                    show={showConfirmPassword}
-                    onToggle={() => setShowConfirmPassword(!showConfirmPassword)}
                   />
                   {confirmPassword && newPassword !== confirmPassword && (
                     <p className="text-sm text-destructive">Passwords do not match</p>
@@ -181,48 +152,5 @@ export function ChangePasswordPage() {
         </div>
       </main>
     </div>
-  );
-}
-
-function PasswordInput({
-  id, value, onChange, show, onToggle,
-}: {
-  id: string;
-  value: string;
-  onChange: (v: string) => void;
-  show: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <div className="relative">
-      <Input
-        type={show ? 'text' : 'password'}
-        id={id}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        required
-        className="pr-11"
-      />
-      <button
-        type="button"
-        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-        onClick={onToggle}
-        tabIndex={-1}
-        aria-label={show ? 'Hide password' : 'Show password'}
-      >
-        {show ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-      </button>
-    </div>
-  );
-}
-
-function RequirementItem({ met, label }: { met: boolean; label: string }) {
-  return (
-    <li className={`flex items-center gap-2 text-sm transition-colors ${met ? 'text-green-600' : 'text-destructive'}`}>
-      {met
-        ? <CheckCircle2 className="w-4 h-4 shrink-0" />
-        : <XCircle className="w-4 h-4 shrink-0" />}
-      {label}
-    </li>
   );
 }

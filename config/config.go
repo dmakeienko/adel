@@ -52,6 +52,9 @@ type ADConfig struct {
 	// SearchAllowedGroups is a list of group CNs or DNs whose members may use the search endpoint.
 	// If empty, search is available to every authenticated user.
 	SearchAllowedGroups []string
+	// PasswordResetAllowedGroups is a list of group CNs or DNs whose members may
+	// reset another user's password. Empty disables password resets.
+	PasswordResetAllowedGroups []string
 	// LeadGroupSuffixes are the CN suffixes marking a role-bearing group, e.g. "-lead"
 	// and "-pm". A user in such a group is a lead/PM of the base group named by the CN
 	// with the suffix replaced by LeadGroupWildcard.
@@ -102,22 +105,23 @@ func Load() (*Config, error) {
 			IdleTimeout:  getDurationEnv("IDLE_TIMEOUT", 60) * time.Second,
 		},
 		AD: ADConfig{
-			Server:              getEnv("AD_SERVER", ""),
-			Port:                getIntEnv("AD_PORT", 389),
-			BaseDN:              getEnv("AD_BASE_DN", ""),
-			UseSSL:              getBoolEnv("AD_USE_SSL", false),
-			SkipTLS:             getBoolEnv("AD_SKIP_TLS", false),
-			UserFilter:          getEnv("AD_USER_FILTER", "(objectClass=user)"),
-			GroupFilter:         getEnv("AD_GROUP_FILTER", "(objectClass=group)"),
-			SearchFilter:        getEnv("AD_SEARCH_FILTER", "(objectClass=*)"),
-			SearchBaseDN:        getEnv("AD_SEARCH_BASE_DN", ""),
-			ExcludedObjects:     getDNSliceEnv("AD_EXCLUDED_OBJECTS", nil),
-			MaxSearchResults:    getIntEnv("AD_MAX_SEARCH_RESULTS", 200),
-			ExcludedGroups:      getDNSliceEnv("AD_EXCLUDED_GROUPS", nil),
-			SearchAllowedGroups: getDNSliceEnv("AD_SEARCH_ALLOWED_GROUPS", nil),
-			LeadGroupSuffixes:   getSliceEnv("AD_LEAD_GROUP_SUFFIXES", nil),
-			LeadGroupWildcard:   getEnv("AD_LEAD_GROUP_WILDCARD", "-*"),
-			CACertPath:          getEnv("AD_CA_CERT_PATH", ""),
+			Server:                     getEnv("AD_SERVER", ""),
+			Port:                       getIntEnv("AD_PORT", 389),
+			BaseDN:                     getEnv("AD_BASE_DN", ""),
+			UseSSL:                     getBoolEnv("AD_USE_SSL", false),
+			SkipTLS:                    getBoolEnv("AD_SKIP_TLS", false),
+			UserFilter:                 getEnv("AD_USER_FILTER", "(objectClass=user)"),
+			GroupFilter:                getEnv("AD_GROUP_FILTER", "(objectClass=group)"),
+			SearchFilter:               getEnv("AD_SEARCH_FILTER", "(objectClass=*)"),
+			SearchBaseDN:               getEnv("AD_SEARCH_BASE_DN", ""),
+			ExcludedObjects:            getDNSliceEnv("AD_EXCLUDED_OBJECTS", nil),
+			MaxSearchResults:           getIntEnv("AD_MAX_SEARCH_RESULTS", 200),
+			ExcludedGroups:             getDNSliceEnv("AD_EXCLUDED_GROUPS", nil),
+			SearchAllowedGroups:        getDNSliceEnv("AD_SEARCH_ALLOWED_GROUPS", nil),
+			PasswordResetAllowedGroups: getDNSliceEnv("AD_PASSWORD_RESET_ALLOWED_GROUPS", nil),
+			LeadGroupSuffixes:          getSliceEnv("AD_LEAD_GROUP_SUFFIXES", nil),
+			LeadGroupWildcard:          getEnv("AD_LEAD_GROUP_WILDCARD", "-*"),
+			CACertPath:                 getEnv("AD_CA_CERT_PATH", ""),
 		},
 		TLS: TLSConfig{
 			Enabled:  getBoolEnv("TLS_ENABLED", true),
@@ -210,8 +214,21 @@ func (c *ADConfig) IsSearchAllowedFor(memberOf []string) bool {
 // isAllowListed reports whether any of the user's groups appears in SearchAllowedGroups,
 // matched either as a full DN or as a bare CN.
 func (c *ADConfig) isAllowListed(memberOf []string) bool {
+	return isMemberOfAnyGroup(memberOf, c.SearchAllowedGroups)
+}
+
+// CanResetPasswordFor reports whether a user may use the privileged password-reset
+// endpoint. Unlike search access, an empty allow-list disables the feature.
+func (c *ADConfig) CanResetPasswordFor(memberOf []string) bool {
+	return len(c.PasswordResetAllowedGroups) > 0 &&
+		isMemberOfAnyGroup(memberOf, c.PasswordResetAllowedGroups)
+}
+
+// isMemberOfAnyGroup matches configured groups by full DN or bare CN,
+// case-insensitively. memberOf includes nested memberships resolved at login.
+func isMemberOfAnyGroup(memberOf, allowedGroups []string) bool {
 	for _, groupDN := range memberOf {
-		for _, allowedGroup := range c.SearchAllowedGroups {
+		for _, allowedGroup := range allowedGroups {
 			if strings.EqualFold(groupDN, allowedGroup) {
 				return true
 			}
@@ -221,7 +238,7 @@ func (c *ADConfig) isAllowListed(memberOf []string) bool {
 		if !ok {
 			continue
 		}
-		for _, allowedGroup := range c.SearchAllowedGroups {
+		for _, allowedGroup := range allowedGroups {
 			if !strings.Contains(allowedGroup, "=") && strings.EqualFold(cn, allowedGroup) {
 				return true
 			}

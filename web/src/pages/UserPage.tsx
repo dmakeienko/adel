@@ -5,19 +5,22 @@ import { useNotification } from '../contexts/NotificationContext';
 import { Sidebar } from '../components/Sidebar';
 import { UserSearch } from '../components/UserSearch';
 import { GroupMembership } from '../components/GroupMembership';
+import { ResetPasswordDialog } from '../components/ResetPasswordDialog';
 import type { User } from '../types';
 import api from '../services/api';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Button } from '@/components/ui/button';
 
 export function UserPage() {
   const { username } = useParams<{ username: string }>();
-  const { user: currentUser, isAuthenticated, isLoading } = useAuth();
+  const { user: currentUser, isAuthenticated, isLoading, canResetPassword } = useAuth();
   const { showNotification } = useNotification();
   const [user, setUser] = useState<User | null>(null);
   const [isLoadingUser, setIsLoadingUser] = useState(true);
+  const [isResetPasswordOpen, setIsResetPasswordOpen] = useState(false);
 
   const loadUser = useCallback(async () => {
     if (!username) return;
@@ -162,6 +165,13 @@ export function UserPage() {
 
                   <ProfileField label="Password Last Set" value={user.pwdLastSet === null ? 'Not Set' : formatDate(user.pwdLastSet)} />
                   <ProfileField label="Password Exp. Date" value={user.passwordExpiryDate === null ? 'Never' : formatDate(user.passwordExpiryDate)} />
+                  {canResetPassword && (
+                    <div className="col-span-full">
+                      <Button type="button" variant="outline" onClick={() => setIsResetPasswordOpen(true)}>
+                        Reset password
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -177,6 +187,15 @@ export function UserPage() {
           </div>
         )}
       </main>
+
+      {user && (
+        <ResetPasswordDialog
+          open={isResetPasswordOpen}
+          targetUsername={user.sAMAccountName}
+          onClose={() => setIsResetPasswordOpen(false)}
+          onReset={loadUser}
+        />
+      )}
     </div>
   );
 }

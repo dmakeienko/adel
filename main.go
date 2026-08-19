@@ -173,6 +173,7 @@ func setupRouter(handler *handlers.Handler, sessionMgr *session.Manager, cfg *co
 	protected.HandleFunc("/users/{username}", handler.GetUser).Methods(http.MethodGet)
 	protected.HandleFunc("/users", handler.EditUser).Methods(http.MethodPut, http.MethodPatch)
 	protected.HandleFunc("/users/change-password", handler.ChangeUserPassword).Methods(http.MethodPost)
+	protected.HandleFunc("/users/{username}/reset-password", handler.ResetUserPassword).Methods(http.MethodPost)
 
 	// Group routes
 	protected.HandleFunc("/groups", handler.GetAllGroups).Methods(http.MethodGet)

@@ -234,6 +234,24 @@ class ApiService {
     }
   }
 
+  async resetPassword(username: string, newPassword: string): Promise<APIResponse> {
+    try {
+      const response = await this.client.post<APIResponse>(
+        `/api/v1/users/${encodeURIComponent(username)}/reset-password`,
+        { newPassword }
+      );
+      return response.data;
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.data) {
+        return error.response.data as APIResponse;
+      }
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error occurred',
+      };
+    }
+  }
+
   async healthCheck(): Promise<boolean> {
     try {
       const response = await this.client.get<HealthResponse>('/health');

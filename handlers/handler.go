@@ -171,7 +171,7 @@ func (h *Handler) GetUser(w http.ResponseWriter, r *http.Request) {
 	if username == "" {
 		writeJSON(w, http.StatusBadRequest, models.UserResponse{
 			Success: false,
-			Error:   "Username is required",
+			Error:   "Username is required", //nolint:goconst // API error message is intentionally local to this response
 		})
 		return
 	}
@@ -196,7 +196,7 @@ func (h *Handler) GetUser(w http.ResponseWriter, r *http.Request) {
 			logKeyUsername, sess.Username, "target", username)
 		writeJSON(w, http.StatusNotFound, models.UserResponse{
 			Success: false,
-			Error:   "User not found",
+			Error:   "User not found", //nolint:goconst // API error message is intentionally local to this response
 		})
 		return
 	}
@@ -1754,9 +1754,8 @@ func filetimeToUnixTime(filetimeStr string) *time.Time {
 	return &t
 }
 
-// ChangeUserPassword changes a user's password in Active Directory.
-// If username is omitted in the request body, the authenticated user's own password is changed.
-// Providing a username requires elevated AD privileges (admin reset).
+// ChangeUserPassword changes the authenticated user's own password in Active Directory.
+// Privileged resets are deliberately handled by ResetUserPassword instead.
 func (h *Handler) ChangeUserPassword(w http.ResponseWriter, r *http.Request) {
 	sess := middleware.GetSessionFromContext(r.Context())
 	if sess == nil {
@@ -1784,45 +1783,18 @@ func (h *Handler) ChangeUserPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Determine target user DN: use session's own DN unless an explicit username is provided
-	var userDN string
-	if req.Username == "" {
-		userDN = sess.UserDN
-	} else {
-		var err error
-		userDN, err = h.findUserDN(sess.Conn, req.Username)
-		if err != nil {
-			writeJSON(w, http.StatusNotFound, models.APIResponse{
-				Success: false,
-				Error:   fmt.Sprintf("User not found: %v", err),
-			})
-			return
-		}
+	if req.OldPassword == "" {
+		writeJSON(w, http.StatusBadRequest, models.APIResponse{
+			Success: false,
+			Error:   "Current password is required",
+		})
+		return
 	}
 
-	// Active Directory requires passwords encoded as UTF-16LE wrapped in double quotes
-	// and set via the unicodePwd attribute over a secure (TLS/LDAPS) connection.
-	encodePassword := func(password string) []byte {
-		quoted := `"` + password + `"`
-		encoded := utf16.Encode([]rune(quoted))
-		result := make([]byte, len(encoded)*2)
-		for i, v := range encoded {
-			result[i*2] = byte(v) // #nosec G115 -- intentional truncation to low byte for UTF-16LE encoding
-			result[i*2+1] = byte(v >> 8)
-		}
-		return result
-	}
-
+	userDN := sess.UserDN
 	modifyReq := ldap.NewModifyRequest(userDN, nil)
-
-	if req.OldPassword != "" {
-		// Change password: delete old, add new (requires user to know current password)
-		modifyReq.Delete("unicodePwd", []string{string(encodePassword(req.OldPassword))})
-		modifyReq.Add("unicodePwd", []string{string(encodePassword(req.NewPassword))})
-	} else {
-		// Admin reset: replace password directly (requires elevated privileges)
-		modifyReq.Replace("unicodePwd", []string{string(encodePassword(req.NewPassword))})
-	}
+	modifyReq.Delete("unicodePwd", []string{string(encodeADPassword(req.OldPassword))})
+	modifyReq.Add("unicodePwd", []string{string(encodeADPassword(req.NewPassword))})
 
 	if err := sess.Conn.Modify(modifyReq); err != nil {
 		logLDAPError("ChangeUserPassword", err, map[string]string{
@@ -1869,6 +1841,130 @@ func (h *Handler) ChangeUserPassword(w http.ResponseWriter, r *http.Request) {
 		Success: true,
 		Message: "Password changed successfully",
 	})
+}
+
+// ResetUserPassword performs a privileged password reset for the username in the URL.
+// Application authorization is checked before AD is contacted; AD permissions remain
+// the final authority over whether the caller's LDAP connection may replace unicodePwd.
+func (h *Handler) ResetUserPassword(w http.ResponseWriter, r *http.Request) {
+	targetUsername := mux.Vars(r)["username"]
+	actor := "unknown"
+	targetDN := ""
+	auditStatus := "denied"
+	defer func() {
+		slog.Info("Password reset audit",
+			"reset_by", actor,
+			"target", targetUsername,
+			"target_dn", targetDN,
+			"status", auditStatus,
+		) //nolint:gosec // G706: structured logging with key-value pairs, not string interpolation
+	}()
+
+	sess := middleware.GetSessionFromContext(r.Context())
+	if sess == nil {
+		writeJSON(w, http.StatusUnauthorized, models.APIResponse{
+			Success: false,
+			Error:   errMsgSessionNotFound,
+		})
+		return
+	}
+	actor = sess.Username
+
+	if targetUsername == "" {
+		auditStatus = "failed"
+		writeJSON(w, http.StatusBadRequest, models.APIResponse{
+			Success: false,
+			Error:   "Username is required",
+		})
+		return
+	}
+
+	if !h.config.AD.CanResetPasswordFor(sess.MemberOf) {
+		writeJSON(w, http.StatusForbidden, models.APIResponse{
+			Success: false,
+			Error:   "Password reset is not permitted for this user",
+		})
+		return
+	}
+
+	auditStatus = "failed"
+	var req models.ResetUserPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, models.APIResponse{
+			Success: false,
+			Error:   errMsgInvalidRequestBody,
+		})
+		return
+	}
+	if req.NewPassword == "" {
+		writeJSON(w, http.StatusBadRequest, models.APIResponse{
+			Success: false,
+			Error:   "New password is required",
+		})
+		return
+	}
+
+	var err error
+	targetDN, err = h.findUserDN(sess.Conn, targetUsername)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, models.APIResponse{
+			Success: false,
+			Error:   "User not found",
+		})
+		return
+	}
+
+	modifyReq := ldap.NewModifyRequest(targetDN, nil)
+	modifyReq.Replace("unicodePwd", []string{string(encodeADPassword(req.NewPassword))})
+	if err := sess.Conn.Modify(modifyReq); err != nil {
+		logLDAPError("ResetUserPassword", err, map[string]string{
+			"reset_by":   actor,
+			"target":     targetUsername, //nolint:goconst // log field name is part of the structured log schema
+			logKeyUserDN: targetDN,
+		})
+
+		if strings.Contains(err.Error(), "Insufficient Access") ||
+			strings.Contains(err.Error(), "LDAP Result Code 50") {
+			writeJSON(w, http.StatusForbidden, models.APIResponse{
+				Success: false,
+				Error:   "Permission denied: insufficient rights to reset password",
+			})
+			return
+		}
+		if strings.Contains(err.Error(), "Constraint Violation") ||
+			strings.Contains(err.Error(), "LDAP Result Code 19") {
+			writeJSON(w, http.StatusBadRequest, models.APIResponse{
+				Success: false,
+				Error:   "Password does not meet complexity or history requirements",
+			})
+			return
+		}
+
+		writeJSON(w, http.StatusInternalServerError, models.APIResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Failed to reset password: %v", err),
+		})
+		return
+	}
+
+	auditStatus = "success"
+	writeJSON(w, http.StatusOK, models.APIResponse{
+		Success: true,
+		Message: "Password reset successfully",
+	})
+}
+
+// encodeADPassword returns the quoted UTF-16LE representation required by Active
+// Directory's unicodePwd attribute. Passwords must only be sent over TLS/LDAPS.
+func encodeADPassword(password string) []byte {
+	quoted := `"` + password + `"`
+	encoded := utf16.Encode([]rune(quoted))
+	result := make([]byte, len(encoded)*2)
+	for i, value := range encoded {
+		result[i*2] = byte(value) // #nosec G115 -- intentional low byte for UTF-16LE
+		result[i*2+1] = byte(value >> 8)
+	}
+	return result
 }
 
 func convertUint64ToInt64(u uint64) (int64, error) {

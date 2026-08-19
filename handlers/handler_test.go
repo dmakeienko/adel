@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -129,6 +131,87 @@ func TestConvertUint64ToInt64(t *testing.T) {
 			t.Error("convertUint64ToInt64(overflow) should return error")
 		}
 	})
+}
+
+func TestEncodeADPassword(t *testing.T) {
+	got := encodeADPassword("A1!")
+	want := []byte{'"', 0, 'A', 0, '1', 0, '!', 0, '"', 0}
+	if string(got) != string(want) {
+		t.Errorf("encodeADPassword() = %v, want %v", got, want)
+	}
+}
+
+func TestChangeUserPasswordRequiresCurrentPassword(t *testing.T) {
+	h := NewHandler(&config.Config{}, nil)
+	sess := &session.Session{Username: testUsername, UserDN: "CN=Test User,DC=example,DC=com"}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/change-password", strings.NewReader(`{"newPassword":"Example1!"}`))
+	req = req.WithContext(context.WithValue(req.Context(), middleware.SessionContextKey, sess))
+	rr := httptest.NewRecorder()
+
+	h.ChangeUserPassword(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+}
+
+func TestResetUserPasswordAuthorizationAndValidation(t *testing.T) {
+	t.Run("rejects a caller outside allowed groups", func(t *testing.T) {
+		h := NewHandler(&config.Config{AD: config.ADConfig{
+			PasswordResetAllowedGroups: []string{"Service Desk"},
+		}}, nil)
+		sess := &session.Session{Username: testUsername, MemberOf: []string{testEmployeesDN}}
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/users/target/reset-password", strings.NewReader(`{"newPassword":"Example1!"}`))
+		req = mux.SetURLVars(req, map[string]string{"username": "target"}) //nolint:goconst // test fixture value
+		req = req.WithContext(context.WithValue(req.Context(), middleware.SessionContextKey, sess))
+		rr := httptest.NewRecorder()
+
+		h.ResetUserPassword(rr, req)
+
+		if rr.Code != http.StatusForbidden {
+			t.Errorf("status = %d, want %d", rr.Code, http.StatusForbidden)
+		}
+	})
+
+	t.Run("requires a new password for an allowed caller", func(t *testing.T) {
+		h := NewHandler(&config.Config{AD: config.ADConfig{
+			PasswordResetAllowedGroups: []string{"Employees"},
+		}}, nil)
+		sess := &session.Session{Username: testUsername, MemberOf: []string{testEmployeesDN}}
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/users/target/reset-password", strings.NewReader(`{}`))
+		req = mux.SetURLVars(req, map[string]string{"username": "target"})
+		req = req.WithContext(context.WithValue(req.Context(), middleware.SessionContextKey, sess))
+		rr := httptest.NewRecorder()
+
+		h.ResetUserPassword(rr, req)
+
+		if rr.Code != http.StatusBadRequest {
+			t.Errorf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+		}
+	})
+}
+
+func TestResetUserPasswordWritesAuditLog(t *testing.T) {
+	var logs bytes.Buffer
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+	defer slog.SetDefault(previousLogger)
+
+	h := NewHandler(&config.Config{AD: config.ADConfig{
+		PasswordResetAllowedGroups: []string{"Service Desk"},
+	}}, nil)
+	sess := &session.Session{Username: "operator", MemberOf: []string{testEmployeesDN}}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/target/reset-password", strings.NewReader(`{"newPassword":"Example1!"}`))
+	req = mux.SetURLVars(req, map[string]string{"username": "target"})
+	req = req.WithContext(context.WithValue(req.Context(), middleware.SessionContextKey, sess))
+
+	h.ResetUserPassword(httptest.NewRecorder(), req)
+
+	for _, field := range []string{`"reset_by":"operator"`, `"target":"target"`, `"status":"denied"`} {
+		if !strings.Contains(logs.String(), field) {
+			t.Errorf("audit log %q does not contain %s", logs.String(), field)
+		}
+	}
 }
 
 func TestWriteJSON(t *testing.T) {

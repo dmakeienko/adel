@@ -46,6 +46,23 @@ func TestGroupRouteOrdering(t *testing.T) {
 	}
 }
 
+func TestResetPasswordRoute(t *testing.T) {
+	cfg := &config.Config{AD: config.ADConfig{Server: "test-ad", BaseDN: "dc=test,dc=com"}}
+	router := setupRouter(handlers.NewHandler(cfg, nil), nil, cfg)
+	req, err := http.NewRequest(http.MethodPost, "/api/v1/users/alice/reset-password", nil)
+	if err != nil {
+		t.Fatalf("failed to build request: %v", err)
+	}
+
+	var match mux.RouteMatch
+	if !router.Match(req, &match) {
+		t.Fatal("reset password route did not match")
+	}
+	if got := match.Vars["username"]; got != "alice" {
+		t.Errorf("username = %q, want alice", got)
+	}
+}
+
 func TestGetLogLevel(t *testing.T) {
 	tests := []struct {
 		input string

@@ -9,7 +9,7 @@ Active Directory Engagement Layer - A Go-based HTTPS server that provides REST A
 - **Session-Based Authentication**: Users login with their own AD credentials (no service account required)
 - **HTTPS Server**: Secure TLS/SSL connections by default
 - **Active Directory Integration**: Connect to AD/LDAP servers with configurable settings
-- **User Management**: Get and edit user attributes
+- **User Management**: Get and edit user attributes, change passwords, and perform authorized password resets
 - **Group Management**: List groups, add/remove users from groups
 - **Group Inspection**: Look up a single group and list its members, with nested groups linked rather than flattened
 - **Nested Group Resolution**: Optionally expand a user's indirect memberships, inherited through groups that are themselves members of other groups
@@ -153,6 +153,24 @@ curl -k -X PUT https://localhost:8080/api/v1/users \
     }
   }'
 ```
+
+#### Reset a User Password
+
+Resets a target user's password using the authenticated caller's AD connection. The
+caller must belong to one of `AD_PASSWORD_RESET_ALLOWED_GROUPS`, and that AD account
+must also have permission to replace the target's `unicodePwd` attribute. The feature
+is disabled when the allow-list is empty.
+
+```bash
+curl -k -X POST https://localhost:8080/api/v1/users/johndoe/reset-password \
+  -H "Content-Type: application/json" \
+  -H "X-Session-ID: your-session-id" \
+  -d '{"newPassword":"A-secure-password1!"}'
+```
+
+Successful and failed attempts are written as structured `Password reset audit` logs
+with `reset_by`, `target`, `target_dn`, and `status` fields. Password values are never
+logged.
 
 #### Search Groups
 
@@ -517,6 +535,7 @@ Response:
 | AD_EXCLUDED_OBJECTS | Semicolon-separated list of DN path fragments (OUs, CN containers) to exclude from results | |
 | AD_EXCLUDED_GROUPS | Semicolon-separated list of group CNs or DNs to exclude from results | |
 | AD_SEARCH_ALLOWED_GROUPS | Semicolon-separated group CNs or DNs allowed to use `/api/v1/search`; empty allows all authenticated users | |
+| AD_PASSWORD_RESET_ALLOWED_GROUPS | Semicolon-separated group CNs or DNs allowed to reset user passwords; empty disables the feature | |
 | AD_LEAD_GROUP_SUFFIXES | Comma-separated CN suffixes marking a lead/PM group (e.g. `-lead,-pm`); members get search scoped to those groups. **Empty disables lead detection entirely** | |
 | AD_LEAD_GROUP_WILDCARD | Replaces the matched suffix in the derived base-group identifier | -* |
 | TLS_ENABLED | Enable HTTPS | true |
@@ -573,6 +592,25 @@ Users outside the allow-list receive `403` from those endpoints, and the web UI 
 search fields, the sidebar **Groups** tab and the group links in the membership table for
 them, based on the `canSearch` field of `GET /api/v1/session`. The server-side check is the
 enforcement point; hiding the controls is a convenience only.
+
+### Password Reset Access
+
+To let selected groups reset passwords from a user's profile:
+
+```bash
+AD_PASSWORD_RESET_ALLOWED_GROUPS=Helpdesk;CN=Directory Admins,OU=Groups,DC=example,DC=com
+```
+
+The group matching and nested-membership behavior is the same as for
+`AD_SEARCH_ALLOWED_GROUPS`, but an empty password-reset allow-list denies everyone. An
+allowed caller sees **Reset password** below the password dates on user profiles. The
+modal validates the same password-complexity rules as self-service password changes,
+then calls `POST /api/v1/users/{username}/reset-password`.
+
+This application check does not grant AD rights. Delegate password-reset permission to
+the configured groups in Active Directory and use LDAPS or StartTLS; AD rejects
+`unicodePwd` changes over an insecure connection. Both the application group check and
+AD authorization must pass.
 
 ### LDAPS Configuration
 
@@ -669,6 +707,7 @@ Key values (see [`charts/adel/values.yaml`](charts/adel/values.yaml) for the ful
 | `config.ad.caCertSecretName` | Secret containing a CA cert for LDAPS, mounted at `/certs/ca` | `""` |
 | `config.ad.maxSearchResults` | Cap on entries returned by any single LDAP search | `"200"` |
 | `config.ad.searchAllowedGroups` | Groups allowed to browse the directory; empty allows everyone | `""` |
+| `config.ad.passwordResetAllowedGroups` | Groups allowed to reset user passwords; empty disables the feature | `""` |
 | `config.ad.leadGroupSuffixes` | CN suffixes enabling [lead scoping](#lead-scoping); empty disables it | `""` |
 | `config.ad.leadGroupWildcard` | Replaces the matched suffix in the derived identifier | `"-*"` |
 | `ingress.enabled` | Expose via Ingress | `false` |

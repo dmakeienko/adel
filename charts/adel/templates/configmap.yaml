@@ -24,6 +24,7 @@ data:
   AD_EXCLUDED_GROUPS: {{ .Values.config.ad.excludedGroups | quote }}
   AD_MAX_SEARCH_RESULTS: {{ .Values.config.ad.maxSearchResults | quote }}
   AD_SEARCH_ALLOWED_GROUPS: {{ .Values.config.ad.searchAllowedGroups | quote }}
+  AD_PASSWORD_RESET_ALLOWED_GROUPS: {{ .Values.config.ad.passwordResetAllowedGroups | quote }}
   AD_LEAD_GROUP_SUFFIXES: {{ .Values.config.ad.leadGroupSuffixes | quote }}
   AD_LEAD_GROUP_WILDCARD: {{ .Values.config.ad.leadGroupWildcard | quote }}
   {{- if .Values.config.ad.caCertSecretName }}

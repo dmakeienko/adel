@@ -241,9 +241,11 @@ func TestLoad(t *testing.T) {
 	os.Setenv("AD_SERVER", "test-ad.example.com")
 	os.Setenv("AD_BASE_DN", "dc=test,dc=com")
 	os.Setenv("AD_SEARCH_ALLOWED_GROUPS", "Helpdesk;Directory Admins")
+	os.Setenv("AD_PASSWORD_RESET_ALLOWED_GROUPS", "Service Desk;Directory Admins")
 	defer os.Unsetenv("AD_SERVER")
 	defer os.Unsetenv("AD_BASE_DN")
 	defer os.Unsetenv("AD_SEARCH_ALLOWED_GROUPS")
+	defer os.Unsetenv("AD_PASSWORD_RESET_ALLOWED_GROUPS")
 
 	cfg, err := Load()
 	if err != nil {
@@ -258,6 +260,33 @@ func TestLoad(t *testing.T) {
 	}
 	if len(cfg.AD.SearchAllowedGroups) != 2 || cfg.AD.SearchAllowedGroups[0] != "Helpdesk" || cfg.AD.SearchAllowedGroups[1] != "Directory Admins" {
 		t.Errorf("AD.SearchAllowedGroups = %v, want [Helpdesk Directory Admins]", cfg.AD.SearchAllowedGroups)
+	}
+	if len(cfg.AD.PasswordResetAllowedGroups) != 2 || cfg.AD.PasswordResetAllowedGroups[0] != "Service Desk" {
+		t.Errorf("AD.PasswordResetAllowedGroups = %v, want [Service Desk Directory Admins]", cfg.AD.PasswordResetAllowedGroups)
+	}
+}
+
+func TestCanResetPasswordFor(t *testing.T) {
+	tests := []struct {
+		name          string
+		memberOf      []string
+		allowedGroups []string
+		want          bool
+	}{
+		{name: "empty allow-list disables reset", memberOf: []string{dnHelpdesk}, want: false},
+		{name: "matches bare CN", memberOf: []string{dnHelpdesk}, allowedGroups: []string{"helpdesk"}, want: true},
+		{name: "matches full DN", memberOf: []string{dnHelpdesk}, allowedGroups: []string{"cn=helpdesk,ou=groups,dc=example,dc=com"}, want: true},
+		{name: "matches nested membership", memberOf: []string{dnEmployees, dnHelpdesk}, allowedGroups: []string{"Helpdesk"}, want: true},
+		{name: "rejects another group", memberOf: []string{dnEmployees}, allowedGroups: []string{"Helpdesk"}, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &ADConfig{PasswordResetAllowedGroups: tt.allowedGroups}
+			if got := cfg.CanResetPasswordFor(tt.memberOf); got != tt.want {
+				t.Errorf("CanResetPasswordFor(%v) = %v, want %v", tt.memberOf, got, tt.want)
+			}
+		})
 	}
 }
 

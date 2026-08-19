@@ -108,6 +108,9 @@ config:
     maxSearchResults: "200"
     # Semicolon-separated group CNs or DNs. Empty allows every authenticated user to search.
     searchAllowedGroups: ""
+    # Semicolon-separated group CNs or DNs whose members may reset user passwords.
+    # Empty disables password reset for every user.
+    passwordResetAllowedGroups: ""
     # Lead/PM scoping. Comma-separated CN suffixes marking a group whose members lead it,
     # e.g. "-lead,-pm". Empty (the default) disables lead detection entirely.
     #
