@@ -168,9 +168,15 @@ curl -k -X POST https://localhost:8080/api/v1/users/johndoe/reset-password \
   -d '{"newPassword":"A-secure-password1!"}'
 ```
 
+The new password must meet the [complexity floor](#password-complexity); the request is
+rejected with `400` if it does not. The endpoint is also
+[rate limited](#password-reset-rate-limiting) per caller and returns `429` once the
+allowance is spent.
+
 Successful and failed attempts are written as structured `Password reset audit` logs
 with `reset_by`, `target`, `target_dn`, and `status` fields. Password values are never
-logged.
+logged. `status` is `denied` when the caller failed the allow-list check, `failed` when
+an authorized caller's reset did not complete, and `success` when it did.
 
 #### Search Groups
 
@@ -538,6 +544,8 @@ Response:
 | AD_PASSWORD_RESET_ALLOWED_GROUPS | Semicolon-separated group CNs or DNs allowed to reset user passwords; empty disables the feature | |
 | AD_LEAD_GROUP_SUFFIXES | Comma-separated CN suffixes marking a lead/PM group (e.g. `-lead,-pm`); members get search scoped to those groups. **Empty disables lead detection entirely** | |
 | AD_LEAD_GROUP_WILDCARD | Replaces the matched suffix in the derived base-group identifier | -* |
+| RATE_LIMIT_PASSWORD_RESET_REQUESTS | Password resets allowed per user per window; `0` disables throttling | 10 |
+| RATE_LIMIT_PASSWORD_RESET_WINDOW | Rate limit window in seconds | 60 |
 | TLS_ENABLED | Enable HTTPS | true |
 | TLS_CERT_FILE | Path to TLS certificate | certs/server.crt |
 | TLS_KEY_FILE | Path to TLS private key | certs/server.key |
@@ -611,6 +619,32 @@ This application check does not grant AD rights. Delegate password-reset permiss
 the configured groups in Active Directory and use LDAPS or StartTLS; AD rejects
 `unicodePwd` changes over an insecure connection. Both the application group check and
 AD authorization must pass.
+
+#### Password Complexity
+
+Both password endpoints require at least 9 characters including a number, a capital
+letter, and a special character. This floor is enforced server-side, so it holds for
+direct API calls and not only for the UI. It is a minimum, not the full policy: Active
+Directory independently enforces the domain password policy (history, age, and its own
+complexity rules) and may still reject a password that satisfies these rules, which is
+returned as `Password does not meet complexity or history requirements`.
+
+#### Password Reset Rate Limiting
+
+The reset endpoint is throttled per calling user, so a compromised but allow-listed
+session cannot sweep the directory. Exceeding the allowance returns `429 Too Many
+Requests` with a `Retry-After` header, and the rejection is logged as
+`Rate limit exceeded`. Allowance is replenished continuously rather than in fixed
+blocks, so a caller who stays under the sustained rate is never thrown a hard cliff.
+
+```bash
+RATE_LIMIT_PASSWORD_RESET_REQUESTS=10   # allowed resets per window, per user
+RATE_LIMIT_PASSWORD_RESET_WINDOW=60     # window in seconds
+```
+
+Setting `RATE_LIMIT_PASSWORD_RESET_REQUESTS=0` disables throttling entirely. Limits are
+tracked per process and held in memory, so a multi-replica deployment applies the limit
+per replica rather than across the cluster.
 
 ### LDAPS Configuration
 
@@ -710,6 +744,8 @@ Key values (see [`charts/adel/values.yaml`](charts/adel/values.yaml) for the ful
 | `config.ad.passwordResetAllowedGroups` | Groups allowed to reset user passwords; empty disables the feature | `""` |
 | `config.ad.leadGroupSuffixes` | CN suffixes enabling [lead scoping](#lead-scoping); empty disables it | `""` |
 | `config.ad.leadGroupWildcard` | Replaces the matched suffix in the derived identifier | `"-*"` |
+| `config.rateLimit.passwordResetRequests` | Password resets allowed per user per window; `"0"` disables throttling | `"10"` |
+| `config.rateLimit.passwordResetWindow` | Rate limit window in seconds | `"60"` |
 | `ingress.enabled` | Expose via Ingress | `false` |
 | `autoscaling.enabled` | Enable HPA | `false` |
 

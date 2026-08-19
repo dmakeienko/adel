@@ -12,11 +12,12 @@ import (
 
 // Config holds all configuration for the application
 type Config struct {
-	Server  ServerConfig
-	AD      ADConfig
-	TLS     TLSConfig
-	CORS    CORSConfig
-	Logging LoggingConfig
+	Server    ServerConfig
+	AD        ADConfig
+	TLS       TLSConfig
+	CORS      CORSConfig
+	Logging   LoggingConfig
+	RateLimit RateLimitConfig
 }
 
 // ServerConfig holds server configuration
@@ -94,6 +95,15 @@ type LoggingConfig struct {
 	Debug  bool
 }
 
+// RateLimitConfig holds throttling configuration for sensitive endpoints.
+type RateLimitConfig struct {
+	// PasswordResetRequests is the number of password-reset attempts allowed per
+	// caller per PasswordResetWindow. Zero or less disables the limit.
+	PasswordResetRequests int
+	// PasswordResetWindow is the period over which the allowance is replenished.
+	PasswordResetWindow time.Duration
+}
+
 // Load loads configuration from environment variables
 func Load() (*Config, error) {
 	cfg := &Config{
@@ -139,6 +149,12 @@ func Load() (*Config, error) {
 			Level:  getEnv("LOG_LEVEL", "info"),
 			Format: getEnv("LOG_FORMAT", "json"),
 			Debug:  getEnv("LOG_LEVEL", "info") == "debug",
+		},
+		RateLimit: RateLimitConfig{
+			// Ten resets per minute is far above what a help-desk operator does by
+			// hand, but low enough to stop a scripted sweep of the directory.
+			PasswordResetRequests: getIntEnv("RATE_LIMIT_PASSWORD_RESET_REQUESTS", 10),
+			PasswordResetWindow:   getDurationEnv("RATE_LIMIT_PASSWORD_RESET_WINDOW", 60) * time.Second,
 		},
 	}
 

@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf16"
 
 	"adel/config"
@@ -43,7 +44,22 @@ const (
 	// maxResolveDNs caps a single membership-resolution request. A user in more
 	// groups than this is well outside normal, and the filter would get unwieldy.
 	maxResolveDNs = 500
+
+	// minPasswordLen mirrors the UI's complexity rules in web/src/lib/password.ts.
+	// The directory's own policy remains the real authority; this is a floor enforced
+	// server-side so a direct API call cannot bypass what the UI presents as required.
+	minPasswordLen = 9
+
+	// errMsgPasswordComplexity is returned when a password fails the floor above. It
+	// deliberately restates the rules rather than reporting which one failed, matching
+	// the requirement list the UI already shows.
+	errMsgPasswordComplexity = "Password must be at least 9 characters and contain a number, " +
+		"a capital letter, and a special character"
 )
+
+// specialPasswordChars is the punctuation set accepted as a "special character",
+// kept in sync with the character class in web/src/lib/password.ts.
+const specialPasswordChars = "!@#$%^&*()_+-=[]{};':\"\\|,.<>/?"
 
 // groupAttributes are the attributes read for group listings and lookups.
 // Deliberately excludes "member": on large groups that array holds every member DN
@@ -1791,6 +1807,14 @@ func (h *Handler) ChangeUserPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !meetsPasswordComplexity(req.NewPassword) {
+		writeJSON(w, http.StatusBadRequest, models.APIResponse{
+			Success: false,
+			Error:   errMsgPasswordComplexity,
+		})
+		return
+	}
+
 	userDN := sess.UserDN
 	modifyReq := ldap.NewModifyRequest(userDN, nil)
 	modifyReq.Delete("unicodePwd", []string{string(encodeADPassword(req.OldPassword))})
@@ -1903,6 +1927,13 @@ func (h *Handler) ResetUserPassword(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	if !meetsPasswordComplexity(req.NewPassword) {
+		writeJSON(w, http.StatusBadRequest, models.APIResponse{
+			Success: false,
+			Error:   errMsgPasswordComplexity,
+		})
+		return
+	}
 
 	var err error
 	targetDN, err = h.findUserDN(sess.Conn, targetUsername)
@@ -1952,6 +1983,31 @@ func (h *Handler) ResetUserPassword(w http.ResponseWriter, r *http.Request) {
 		Success: true,
 		Message: "Password reset successfully",
 	})
+}
+
+// meetsPasswordComplexity reports whether a password satisfies the minimum rules the
+// UI advertises. Active Directory enforces the domain policy independently and may
+// reject a password this accepts; the check exists so the documented rules hold for
+// callers that never load the UI, not to replace directory policy.
+//
+// Length is counted in runes so a multi-byte password is not over-counted by len().
+func meetsPasswordComplexity(password string) bool {
+	var hasNumber, hasCapital, hasSpecial bool
+	length := 0
+
+	for _, r := range password {
+		length++
+		switch {
+		case unicode.IsDigit(r):
+			hasNumber = true
+		case unicode.IsUpper(r):
+			hasCapital = true
+		case strings.ContainsRune(specialPasswordChars, r):
+			hasSpecial = true
+		}
+	}
+
+	return length >= minPasswordLen && hasNumber && hasCapital && hasSpecial
 }
 
 // encodeADPassword returns the quoted UTF-16LE representation required by Active

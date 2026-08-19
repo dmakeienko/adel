@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 	"testing"
+	"time"
 
 	"adel/config"
 	"adel/handlers"
@@ -14,7 +15,7 @@ import (
 // The wildcard /groups/{groupName} is registered after the literal group sub-routes and
 // would swallow them if that order were ever changed, which no handler test would catch.
 func TestGroupRouteOrdering(t *testing.T) {
-	cfg := &config.Config{AD: config.ADConfig{Server: "test-ad", BaseDN: "dc=test,dc=com"}}
+	cfg := &config.Config{AD: config.ADConfig{Server: "test-ad", BaseDN: "dc=test,dc=com"}} //nolint:goconst // test fixture value
 	router := setupRouter(handlers.NewHandler(cfg, nil), nil, cfg)
 
 	tests := []struct {
@@ -58,8 +59,65 @@ func TestResetPasswordRoute(t *testing.T) {
 	if !router.Match(req, &match) {
 		t.Fatal("reset password route did not match")
 	}
-	if got := match.Vars["username"]; got != "alice" {
+	if got := match.Vars["username"]; got != "alice" { //nolint:goconst // test fixture value
 		t.Errorf("username = %q, want alice", got)
+	}
+}
+
+// The reset-password route lives on its own rate-limited subrouter. That nesting is
+// what could silently break its matching or shadow a sibling route, so both are pinned.
+func TestResetPasswordRateLimitSubrouterPreservesRouting(t *testing.T) {
+	cfg := &config.Config{
+		AD:        config.ADConfig{Server: "test-ad", BaseDN: "dc=test,dc=com"},
+		RateLimit: config.RateLimitConfig{PasswordResetRequests: 5, PasswordResetWindow: time.Minute},
+	}
+	router := setupRouter(handlers.NewHandler(cfg, nil), nil, cfg)
+
+	tests := []struct {
+		name    string
+		method  string
+		path    string
+		wantVar string
+	}{
+		{"reset password still matches", http.MethodPost, "/api/v1/users/alice/reset-password", "alice"},
+		// The subrouter uses an empty prefix, so it must not shadow the sibling routes
+		// registered on the same protected subrouter.
+		{"change-password is unaffected", http.MethodPost, "/api/v1/users/change-password", ""},
+		{"user lookup is unaffected", http.MethodGet, "/api/v1/users/alice", "alice"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req, err := http.NewRequest(tt.method, tt.path, nil)
+			if err != nil {
+				t.Fatalf("failed to build request: %v", err)
+			}
+
+			var match mux.RouteMatch
+			if !router.Match(req, &match) {
+				t.Fatalf("%s %s matched no route", tt.method, tt.path)
+			}
+			if got := match.Vars["username"]; got != tt.wantVar {
+				t.Errorf("username = %q, want %q", got, tt.wantVar)
+			}
+		})
+	}
+}
+
+// A zero RateLimit config must leave the routes working, since the limiter is
+// configuration-driven and returns a pass-through when disabled.
+func TestResetPasswordRouteWithRateLimitDisabled(t *testing.T) {
+	cfg := &config.Config{AD: config.ADConfig{Server: "test-ad", BaseDN: "dc=test,dc=com"}}
+	router := setupRouter(handlers.NewHandler(cfg, nil), nil, cfg)
+
+	req, err := http.NewRequest(http.MethodPost, "/api/v1/users/alice/reset-password", nil)
+	if err != nil {
+		t.Fatalf("failed to build request: %v", err)
+	}
+
+	var match mux.RouteMatch
+	if !router.Match(req, &match) {
+		t.Fatal("reset password route did not match with rate limiting disabled")
 	}
 }
 

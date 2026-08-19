@@ -173,7 +173,16 @@ func setupRouter(handler *handlers.Handler, sessionMgr *session.Manager, cfg *co
 	protected.HandleFunc("/users/{username}", handler.GetUser).Methods(http.MethodGet)
 	protected.HandleFunc("/users", handler.EditUser).Methods(http.MethodPut, http.MethodPatch)
 	protected.HandleFunc("/users/change-password", handler.ChangeUserPassword).Methods(http.MethodPost)
-	protected.HandleFunc("/users/{username}/reset-password", handler.ResetUserPassword).Methods(http.MethodPost)
+
+	// Password reset gets its own subrouter so the rate limiter applies to it alone.
+	// It sits inside the protected chain, so RequireSession has already populated the
+	// session and the limiter can key on the calling username rather than the source IP.
+	passwordReset := protected.PathPrefix("").Subrouter()
+	passwordReset.Use(middleware.RateLimit(middleware.RateLimitConfig{
+		Requests: cfg.RateLimit.PasswordResetRequests,
+		Window:   cfg.RateLimit.PasswordResetWindow,
+	}))
+	passwordReset.HandleFunc("/users/{username}/reset-password", handler.ResetUserPassword).Methods(http.MethodPost)
 
 	// Group routes
 	protected.HandleFunc("/groups", handler.GetAllGroups).Methods(http.MethodGet)

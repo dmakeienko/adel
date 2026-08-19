@@ -175,7 +175,7 @@ func TestResetUserPasswordAuthorizationAndValidation(t *testing.T) {
 
 	t.Run("requires a new password for an allowed caller", func(t *testing.T) {
 		h := NewHandler(&config.Config{AD: config.ADConfig{
-			PasswordResetAllowedGroups: []string{"Employees"},
+			PasswordResetAllowedGroups: []string{"Employees"}, //nolint:goconst // test fixture value
 		}}, nil)
 		sess := &session.Session{Username: testUsername, MemberOf: []string{testEmployeesDN}}
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/users/target/reset-password", strings.NewReader(`{}`))
@@ -191,7 +191,11 @@ func TestResetUserPasswordAuthorizationAndValidation(t *testing.T) {
 	})
 }
 
-func TestResetUserPasswordWritesAuditLog(t *testing.T) {
+// TestResetUserPasswordWritesDeniedAuditLog covers the audit record emitted when a
+// caller outside the allow-list is rejected: the attempt is logged with the actor and
+// intended target even though nothing was changed. The successful path additionally
+// requires a live LDAP connection and is not exercised here.
+func TestResetUserPasswordWritesDeniedAuditLog(t *testing.T) {
 	var logs bytes.Buffer
 	previousLogger := slog.Default()
 	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
@@ -200,17 +204,126 @@ func TestResetUserPasswordWritesAuditLog(t *testing.T) {
 	h := NewHandler(&config.Config{AD: config.ADConfig{
 		PasswordResetAllowedGroups: []string{"Service Desk"},
 	}}, nil)
+	// The session is a member of Employees, not Service Desk, so authorization fails.
 	sess := &session.Session{Username: "operator", MemberOf: []string{testEmployeesDN}}
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/target/reset-password", strings.NewReader(`{"newPassword":"Example1!"}`))
+	req = mux.SetURLVars(req, map[string]string{"username": "target"})
+	req = req.WithContext(context.WithValue(req.Context(), middleware.SessionContextKey, sess))
+	rr := httptest.NewRecorder()
+
+	h.ResetUserPassword(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusForbidden)
+	}
+	for _, field := range []string{`"reset_by":"operator"`, `"target":"target"`, `"status":"denied"`} {
+		if !strings.Contains(logs.String(), field) {
+			t.Errorf("audit log %q does not contain %s", logs.String(), field)
+		}
+	}
+}
+
+// TestResetUserPasswordAuditStatusDistinguishesFailureFromDenial pins the distinction
+// the audit status is there to make: a caller who passes the allow-list but fails later
+// is recorded as "failed", not "denied", so a rejected attempt is never mistaken for a
+// permitted one that merely errored.
+func TestResetUserPasswordAuditStatusDistinguishesFailureFromDenial(t *testing.T) {
+	var logs bytes.Buffer
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+	defer slog.SetDefault(previousLogger)
+
+	h := NewHandler(&config.Config{AD: config.ADConfig{
+		PasswordResetAllowedGroups: []string{"Employees"}, //nolint:goconst // test fixture value
+	}}, nil)
+	// Authorized caller, but the body carries no password, so it fails after the gate.
+	sess := &session.Session{Username: "operator", MemberOf: []string{testEmployeesDN}}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/target/reset-password", strings.NewReader(`{}`))
 	req = mux.SetURLVars(req, map[string]string{"username": "target"})
 	req = req.WithContext(context.WithValue(req.Context(), middleware.SessionContextKey, sess))
 
 	h.ResetUserPassword(httptest.NewRecorder(), req)
 
-	for _, field := range []string{`"reset_by":"operator"`, `"target":"target"`, `"status":"denied"`} {
-		if !strings.Contains(logs.String(), field) {
-			t.Errorf("audit log %q does not contain %s", logs.String(), field)
-		}
+	if !strings.Contains(logs.String(), `"status":"failed"`) {
+		t.Errorf("audit log %q does not record status=failed for an authorized caller", logs.String())
+	}
+}
+
+func TestResetUserPasswordRejectsWeakPassword(t *testing.T) {
+	// Each password is missing exactly one of the advertised requirements.
+	tests := []struct {
+		name     string
+		password string
+	}{
+		{name: "too short", password: "Ex1!aaaa"},
+		{name: "no number", password: "Example!!"},
+		{name: "no capital", password: "example1!"},
+		{name: "no special character", password: "Example123"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := NewHandler(&config.Config{AD: config.ADConfig{
+				PasswordResetAllowedGroups: []string{"Employees"},
+			}}, nil)
+			sess := &session.Session{Username: testUsername, MemberOf: []string{testEmployeesDN}}
+			body := `{"newPassword":"` + tt.password + `"}`
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/users/target/reset-password", strings.NewReader(body))
+			req = mux.SetURLVars(req, map[string]string{"username": "target"})
+			req = req.WithContext(context.WithValue(req.Context(), middleware.SessionContextKey, sess))
+			rr := httptest.NewRecorder()
+
+			h.ResetUserPassword(rr, req)
+
+			if rr.Code != http.StatusBadRequest {
+				t.Errorf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+			}
+			if !strings.Contains(rr.Body.String(), "at least 9 characters") {
+				t.Errorf("body = %q, want the complexity requirements", rr.Body.String())
+			}
+		})
+	}
+}
+
+func TestMeetsPasswordComplexity(t *testing.T) {
+	tests := []struct {
+		name     string
+		password string
+		want     bool
+	}{
+		{name: "satisfies every rule", password: "Example1!", want: true},
+		{name: "empty", password: "", want: false},
+		{name: "one rune short", password: "Exampl1!", want: false},
+		{name: "missing number", password: "Example!!", want: false},
+		{name: "missing capital", password: "example1!", want: false},
+		{name: "missing special", password: "Example123", want: false},
+		// Length is counted in runes, so a multi-byte password is not over-counted
+		// into passing on byte length alone.
+		{name: "multi-byte runes count once", password: "Ünïcodé1!", want: true}, // #nosec G101 -- test fixture, not a credential
+		{name: "multi-byte but too short", password: "Ünï1!", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := meetsPasswordComplexity(tt.password); got != tt.want {
+				t.Errorf("meetsPasswordComplexity(%q) = %v, want %v", tt.password, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestChangeUserPasswordRejectsWeakPassword(t *testing.T) {
+	h := NewHandler(&config.Config{}, nil)
+	sess := &session.Session{Username: testUsername, UserDN: "CN=Test User,DC=example,DC=com"}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/change-password",
+		strings.NewReader(`{"oldPassword":"OldExample1!","newPassword":"weak"}`))
+	req = req.WithContext(context.WithValue(req.Context(), middleware.SessionContextKey, sess))
+	rr := httptest.NewRecorder()
+
+	h.ChangeUserPassword(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusBadRequest)
 	}
 }
 

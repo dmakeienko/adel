@@ -125,6 +125,14 @@ config:
     caCertSecretName: ""
     caCertSecretKey: "ca.crt"
 
+  # Throttling for the password reset endpoint, applied per calling user.
+  # Limits are per replica and held in memory, not shared across the cluster.
+  rateLimit:
+    # Resets allowed per user per window. Set to 0 to disable throttling.
+    passwordResetRequests: "10"
+    # Window in seconds over which the allowance is replenished.
+    passwordResetWindow: "60"
+
   cors:
     allowedOrigins: "*"
     allowedMethods: "GET,POST,PUT,DELETE,OPTIONS,PATCH"

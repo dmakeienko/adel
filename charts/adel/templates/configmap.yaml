@@ -31,6 +31,9 @@ data:
   AD_CA_CERT_PATH: "/certs/ca/{{ .Values.config.ad.caCertSecretKey }}"
   {{- end }}
 
+  RATE_LIMIT_PASSWORD_RESET_REQUESTS: {{ .Values.config.rateLimit.passwordResetRequests | quote }}
+  RATE_LIMIT_PASSWORD_RESET_WINDOW: {{ .Values.config.rateLimit.passwordResetWindow | quote }}
+
   CORS_ALLOWED_ORIGINS: {{ .Values.config.cors.allowedOrigins | quote }}
   CORS_ALLOWED_METHODS: {{ .Values.config.cors.allowedMethods | quote }}
   CORS_ALLOWED_HEADERS: {{ .Values.config.cors.allowedHeaders | quote }}

@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestGetEnv(t *testing.T) {
@@ -263,6 +264,56 @@ func TestLoad(t *testing.T) {
 	}
 	if len(cfg.AD.PasswordResetAllowedGroups) != 2 || cfg.AD.PasswordResetAllowedGroups[0] != "Service Desk" {
 		t.Errorf("AD.PasswordResetAllowedGroups = %v, want [Service Desk Directory Admins]", cfg.AD.PasswordResetAllowedGroups)
+	}
+	// Rate limiting is on by default: an operator who never sets these still gets a
+	// bounded reset endpoint.
+	if cfg.RateLimit.PasswordResetRequests != 10 {
+		t.Errorf("RateLimit.PasswordResetRequests = %d, want 10", cfg.RateLimit.PasswordResetRequests)
+	}
+	if cfg.RateLimit.PasswordResetWindow != time.Minute {
+		t.Errorf("RateLimit.PasswordResetWindow = %v, want %v", cfg.RateLimit.PasswordResetWindow, time.Minute)
+	}
+}
+
+func TestLoadRateLimitOverrides(t *testing.T) {
+	os.Setenv("AD_SERVER", "test-ad.example.com")
+	os.Setenv("AD_BASE_DN", "dc=test,dc=com")
+	os.Setenv("RATE_LIMIT_PASSWORD_RESET_REQUESTS", "3")
+	os.Setenv("RATE_LIMIT_PASSWORD_RESET_WINDOW", "120")
+	defer os.Unsetenv("AD_SERVER")
+	defer os.Unsetenv("AD_BASE_DN")
+	defer os.Unsetenv("RATE_LIMIT_PASSWORD_RESET_REQUESTS")
+	defer os.Unsetenv("RATE_LIMIT_PASSWORD_RESET_WINDOW")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.RateLimit.PasswordResetRequests != 3 {
+		t.Errorf("RateLimit.PasswordResetRequests = %d, want 3", cfg.RateLimit.PasswordResetRequests)
+	}
+	if cfg.RateLimit.PasswordResetWindow != 2*time.Minute {
+		t.Errorf("RateLimit.PasswordResetWindow = %v, want %v", cfg.RateLimit.PasswordResetWindow, 2*time.Minute)
+	}
+}
+
+// Throttling must be disableable, since a single-operator deployment may not want it.
+func TestLoadRateLimitDisabled(t *testing.T) {
+	os.Setenv("AD_SERVER", "test-ad.example.com")
+	os.Setenv("AD_BASE_DN", "dc=test,dc=com")
+	os.Setenv("RATE_LIMIT_PASSWORD_RESET_REQUESTS", "0")
+	defer os.Unsetenv("AD_SERVER")
+	defer os.Unsetenv("AD_BASE_DN")
+	defer os.Unsetenv("RATE_LIMIT_PASSWORD_RESET_REQUESTS")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.RateLimit.PasswordResetRequests != 0 {
+		t.Errorf("RateLimit.PasswordResetRequests = %d, want 0", cfg.RateLimit.PasswordResetRequests)
 	}
 }
 
