@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.7.0](https://github.com/dmakeienko/adel/compare/v1.6.2...v1.7.0) (2026-08-19)
+
+
+### Features
+
+* harden password reset with rate limiting and server-side complexity ([5128a5c](https://github.com/dmakeienko/adel/commit/5128a5c1da66c795347ad4555e9ec76f4b8a8335))
+* reset password feat ([fc7ae2f](https://github.com/dmakeienko/adel/commit/fc7ae2f862e40270c7a127761c613e4b9d3b335e))
+
 ## [1.6.2](https://github.com/dmakeienko/adel/compare/v1.6.1...v1.6.2) (2026-08-18)
 
 
