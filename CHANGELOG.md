@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.7.1](https://github.com/dmakeienko/adel/compare/v1.7.0...v1.7.1) (2026-08-21)
+
+
+### Dependencies
+
+* **deps:** bump the github-actions group with 3 updates ([d462fc1](https://github.com/dmakeienko/adel/commit/d462fc1a058f2ae6fa468feb544df52929c07492))
+* **deps:** bump the github-actions group with 3 updates ([bec74a2](https://github.com/dmakeienko/adel/commit/bec74a2eff0df290d06156768640b01b972255f9))
+
 ## [1.7.0](https://github.com/dmakeienko/adel/compare/v1.6.2...v1.7.0) (2026-08-19)
 
 
