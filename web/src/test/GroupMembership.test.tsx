@@ -1,13 +1,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { GroupMembership } from '../components/GroupMembership';
 import type { User } from '../types';
 import api from '../services/api';
 
 // Group names render as links to the group page, so the component needs router context.
-const renderWithRouter = (ui: React.ReactElement) =>
-  render(<MemoryRouter>{ui}</MemoryRouter>);
+const renderWithRouter = (ui: React.ReactElement) => {
+  const router = createMemoryRouter(
+    [{ path: '*', element: ui }],
+    { initialEntries: ['/user/testuser'] }
+  );
+  return { router, ...render(<RouterProvider router={router} />) };
+};
 
 vi.mock('../services/api', () => ({
   default: {
@@ -224,5 +229,79 @@ describe('GroupMembership cancel', () => {
     });
     expect(api.addUserToGroup).not.toHaveBeenCalled();
     expect(api.removeUserFromGroup).not.toHaveBeenCalled();
+  });
+});
+
+describe('GroupMembership unsaved changes warning', () => {
+  beforeEach(() => {
+    canSearch = true;
+    vi.mocked(api.resolveGroups).mockResolvedValue({
+      success: true,
+      count: 1,
+      groups: [
+        {
+          dn: DIRECT_DN,
+          cn: 'Engineering',
+          sAMAccountName: 'Engineering',
+          description: 'Engineers',
+        },
+      ],
+    });
+    vi.mocked(api.searchGroups).mockResolvedValue({ success: true, count: 0, groups: [] });
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('warns before refresh or close while group changes are pending', async () => {
+    renderWithRouter(<GroupMembership user={user} />);
+    await screen.findByText('Engineering');
+
+    fireEvent.click(screen.getByRole('checkbox'));
+    await screen.findByText(/1 pending change/);
+
+    const event = new Event('beforeunload', { cancelable: true });
+    const canLeave = window.dispatchEvent(event);
+
+    expect(canLeave).toBe(false);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('removes the warning after pending changes are cancelled', async () => {
+    renderWithRouter(<GroupMembership user={user} />);
+    await screen.findByText('Engineering');
+
+    fireEvent.click(screen.getByRole('checkbox'));
+    await screen.findByText(/1 pending change/);
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() => {
+      expect(screen.queryByText(/pending change/)).not.toBeInTheDocument();
+    });
+
+    const event = new Event('beforeunload', { cancelable: true });
+    const canLeave = window.dispatchEvent(event);
+
+    expect(canLeave).toBe(true);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('confirms before navigating to another application page', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const { router } = renderWithRouter(<GroupMembership user={user} />);
+    await screen.findByText('Engineering');
+
+    fireEvent.click(screen.getByRole('checkbox'));
+    await screen.findByText(/1 pending change/);
+    fireEvent.click(screen.getByRole('link', { name: 'Engineering' }));
+
+    await waitFor(() => {
+      expect(confirmSpy).toHaveBeenCalledWith(
+        'Your group membership changes have not been applied. Leave this page without saving?'
+      );
+    });
+    expect(router.state.location.pathname).toBe('/user/testuser');
+    confirmSpy.mockRestore();
   });
 });

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useBlocker } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import {
   useReactTable,
@@ -141,6 +141,40 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
     // their own memberships, rendered from the DN-derived fallback in loadUserGroups.
     loadUserGroups();
   }, [allGroups, user.memberOf, loadUserGroups]);
+
+  // Browsers own the appearance and wording of this confirmation, but setting a
+  // return value makes the standard leave-page prompt appear for refreshes and
+  // closing the tab while membership edits have not been saved.
+  useEffect(() => {
+    if (pendingChanges.size === 0) return;
+
+    const warnAboutUnsavedChanges = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = 'Your group membership changes have not been applied.';
+    };
+
+    window.addEventListener('beforeunload', warnAboutUnsavedChanges);
+    return () => window.removeEventListener('beforeunload', warnAboutUnsavedChanges);
+  }, [pendingChanges]);
+
+  // beforeunload cannot cover SPA route changes because the page stays open.
+  // Block those separately and use a confirm window with a clear explanation.
+  const blocker = useBlocker(({ currentLocation, nextLocation }) =>
+    pendingChanges.size > 0 && currentLocation.pathname !== nextLocation.pathname
+  );
+
+  useEffect(() => {
+    if (blocker.state !== 'blocked') return;
+
+    const shouldLeave = window.confirm(
+      'Your group membership changes have not been applied. Leave this page without saving?'
+    );
+    if (shouldLeave) {
+      blocker.proceed();
+    } else {
+      blocker.reset();
+    }
+  }, [blocker]);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);

@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { createBrowserRouter, RouterProvider, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { NotificationProvider } from './contexts/NotificationContext';
 import { NotificationBanner } from './components/NotificationBanner';
@@ -89,16 +89,20 @@ function AppRoutes() {
   );
 }
 
+// A data router is required for useBlocker, which protects unsaved membership
+// edits when the user navigates to another page within the application.
+const router = createBrowserRouter([
+  { path: '*', element: <AppRoutes /> },
+]);
+
 function App() {
   return (
-    <BrowserRouter>
-      <NotificationProvider>
-        <AuthProvider>
-          <NotificationBanner />
-          <AppRoutes />
-        </AuthProvider>
-      </NotificationProvider>
-    </BrowserRouter>
+    <NotificationProvider>
+      <AuthProvider>
+        <NotificationBanner />
+        <RouterProvider router={router} />
+      </AuthProvider>
+    </NotificationProvider>
   );
 }
 
