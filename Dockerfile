@@ -11,7 +11,7 @@ COPY web/ ./
 RUN npm run build
 
 # Stage 2 — build the Go binary with embedded assets
-FROM golang:1.26.6-alpine AS go-builder
+FROM golang:1.27.0-alpine AS go-builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
