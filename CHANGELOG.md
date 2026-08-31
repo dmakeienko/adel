@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.7.1](https://github.com/dmakeienko/adel/compare/v1.7.0...v1.7.1) (2026-08-31)
+
+
+### Bug Fixes
+
+* **ui:** notify user about unsaved changes ([e8828ef](https://github.com/dmakeienko/adel/commit/e8828ef0fd4881970b5569b964e066a4f0f53533))
+
+
+### Dependencies
+
+* **deps:** bump the github-actions group with 2 updates ([4a7d6a5](https://github.com/dmakeienko/adel/commit/4a7d6a54864c0cce260020874e2e5f5bb554abd4))
+* **deps:** bump the github-actions group with 2 updates ([6b0f6e7](https://github.com/dmakeienko/adel/commit/6b0f6e724a77bbb4fb42a2ea5f9f92359ff4df42))
+* **deps:** bump the github-actions group with 3 updates ([d462fc1](https://github.com/dmakeienko/adel/commit/d462fc1a058f2ae6fa468feb544df52929c07492))
+* **deps:** bump the github-actions group with 3 updates ([bec74a2](https://github.com/dmakeienko/adel/commit/bec74a2eff0df290d06156768640b01b972255f9))
+
 ## [1.7.0](https://github.com/dmakeienko/adel/compare/v1.6.2...v1.7.0) (2026-08-19)
 
 
