@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.7.1](https://github.com/dmakeienko/adel/compare/v1.7.0...v1.7.1) (2026-09-30)
+
+
+### Bug Fixes
+
+* **ui:** notify user about unsaved changes ([e8828ef](https://github.com/dmakeienko/adel/commit/e8828ef0fd4881970b5569b964e066a4f0f53533))
+
+
+### Dependencies
+
+* **deps:** bump the github-actions group with 2 updates ([4a7d6a5](https://github.com/dmakeienko/adel/commit/4a7d6a54864c0cce260020874e2e5f5bb554abd4))
+* **deps:** bump the github-actions group with 2 updates ([6b0f6e7](https://github.com/dmakeienko/adel/commit/6b0f6e724a77bbb4fb42a2ea5f9f92359ff4df42))
+* **deps:** bump the github-actions group with 3 updates ([063e15c](https://github.com/dmakeienko/adel/commit/063e15c1f82b322b2ab2b5ecda8acf863c78868d))
+* **deps:** bump the github-actions group with 3 updates ([d999807](https://github.com/dmakeienko/adel/commit/d999807d439a20c7e469db13b10e9727e1c39abe))
+* **deps:** bump the github-actions group with 3 updates ([133fafe](https://github.com/dmakeienko/adel/commit/133fafe91a4fb68786b6c6bb0a36f77577bfd826))
+* **deps:** bump the github-actions group with 3 updates ([e617570](https://github.com/dmakeienko/adel/commit/e617570d7d1ed3ee501d01351197ba08abfd521d))
+* **deps:** bump the github-actions group with 3 updates ([d462fc1](https://github.com/dmakeienko/adel/commit/d462fc1a058f2ae6fa468feb544df52929c07492))
+* **deps:** bump the github-actions group with 3 updates ([bec74a2](https://github.com/dmakeienko/adel/commit/bec74a2eff0df290d06156768640b01b972255f9))
+* **deps:** bump the github-actions group with 5 updates ([83e0b4c](https://github.com/dmakeienko/adel/commit/83e0b4c7e4a86851900ff58dab6571ac0fe847bf))
+* **deps:** bump the github-actions group with 5 updates ([b8f49e6](https://github.com/dmakeienko/adel/commit/b8f49e6079eee552ffe794e6fd70d057d4011166))
+* **deps:** bump the npm_and_yarn group across 1 directory with 3 updates ([fed92e6](https://github.com/dmakeienko/adel/commit/fed92e698f77f783ebaf79a01aa3ea4b58bd9f71))
+* **deps:** bump the npm_and_yarn group across 1 directory with 3 updates ([d425c5f](https://github.com/dmakeienko/adel/commit/d425c5f0042e6b272da8644f6f60c553948244b2))
+
 ## [1.7.0](https://github.com/dmakeienko/adel/compare/v1.6.2...v1.7.0) (2026-08-19)
 
 
