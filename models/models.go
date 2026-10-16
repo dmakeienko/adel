@@ -87,6 +87,12 @@ type GroupMembershipRequest struct {
 	GroupName string `json:"groupName"`
 }
 
+// AddGroupMemberRequest is the body of the Groups-tab add-member call. The group is
+// carried in the URL and never accepted from this body.
+type AddGroupMemberRequest struct {
+	Username string `json:"username"`
+}
+
 // GetGroupsRequest represents get all groups request
 type GetGroupsRequest struct {
 	BaseDN string `json:"baseDN,omitempty"`
@@ -237,6 +243,10 @@ type SessionInfo struct {
 	// CanResetPassword reports whether this session may use the privileged password
 	// reset endpoint. It controls UI visibility only; the endpoint checks again.
 	CanResetPassword bool `json:"canResetPassword"`
+	// CanManageGroupMembers reports whether this session may add and remove group
+	// members from the Groups tab. It controls UI visibility only; the endpoints check
+	// again.
+	CanManageGroupMembers bool `json:"canManageGroupMembers"`
 	// LeadGroupMembership holds the wildcard identifiers of the groups in which this
 	// user is a lead or PM, so the UI can scope its search view to them. Empty when the
 	// user holds no such role.

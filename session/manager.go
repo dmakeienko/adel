@@ -188,14 +188,15 @@ func (m *Manager) GetSessionInfo(sessionID string) (*models.SessionInfo, error) 
 	}
 
 	return &models.SessionInfo{
-		SessionID:           session.ID,
-		Username:            session.Username,
-		UserDN:              session.UserDN,
-		CreatedAt:           session.CreatedAt,
-		ExpiresAt:           session.ExpiresAt,
-		CanSearch:           m.cfg.AD.IsSearchAllowedFor(session.MemberOf),
-		CanResetPassword:    m.cfg.AD.CanResetPasswordFor(session.MemberOf),
-		LeadGroupMembership: m.cfg.AD.LeadGroupsFor(session.MemberOf),
+		SessionID:             session.ID,
+		Username:              session.Username,
+		UserDN:                session.UserDN,
+		CreatedAt:             session.CreatedAt,
+		ExpiresAt:             session.ExpiresAt,
+		CanSearch:             m.cfg.AD.IsSearchAllowedFor(session.MemberOf),
+		CanResetPassword:      m.cfg.AD.CanResetPasswordFor(session.MemberOf),
+		CanManageGroupMembers: m.cfg.AD.CanManageGroupMembersFor(session.MemberOf),
+		LeadGroupMembership:   m.cfg.AD.LeadGroupsFor(session.MemberOf),
 	}, nil
 }
 

@@ -10,9 +10,12 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { Sidebar } from '../components/Sidebar';
 import { GroupSearch } from '../components/GroupSearch';
+import { GroupMemberAdd } from '../components/GroupMemberAdd';
+import { useNotification } from '../contexts/NotificationContext';
 import type { Group, GroupMember } from '../types';
 import api from '../services/api';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import {
@@ -26,14 +29,20 @@ import {
 
 export function GroupPage() {
   const { groupName } = useParams<{ groupName: string }>();
-  const { isAuthenticated, isLoading, canSearch } = useAuth();
+  const { isAuthenticated, isLoading, canSearch, canManageGroupMembers } = useAuth();
+  const { showNotification } = useNotification();
   const [group, setGroup] = useState<Group | null>(null);
   const [members, setMembers] = useState<GroupMember[]>([]);
   const [truncated, setTruncated] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoadingGroup, setIsLoadingGroup] = useState(true);
+  // The member whose removal is awaiting confirmation, and the one being removed.
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
 
-  const loadGroup = useCallback(async () => {
+  // `silent` refreshes the member list in place after a change, instead of replacing the
+  // page with the loading spinner.
+  const loadGroup = useCallback(async (silent = false) => {
     // No group in the URL is the browse landing state, reached from the sidebar tab:
     // the search box is shown and nothing is fetched until a group is picked.
     if (!groupName) {
@@ -44,7 +53,7 @@ export function GroupPage() {
       return;
     }
 
-    setIsLoadingGroup(true);
+    if (!silent) setIsLoadingGroup(true);
     try {
       const response = await api.getGroup(groupName);
       if (response.success && response.group) {
@@ -71,6 +80,29 @@ export function GroupPage() {
       loadGroup();
     }
   }, [isAuthenticated, loadGroup]);
+
+  // A pending confirmation belongs to the group it was raised on.
+  useEffect(() => {
+    setConfirmRemove(null);
+  }, [groupName]);
+
+  const handleRemove = useCallback(
+    async (username: string) => {
+      if (!group) return;
+      setRemoving(username);
+      const result = await api.removeGroupMember(group.cn, username);
+      setRemoving(null);
+      setConfirmRemove(null);
+
+      if (result.success) {
+        showNotification(`${username} removed from ${group.cn}.`, 'success');
+        await loadGroup(true);
+      } else {
+        showNotification(result.error || result.message || 'Failed to remove member.', 'error');
+      }
+    },
+    [group, loadGroup, showNotification]
+  );
 
   // Memoised for the same reason as the membership table: useReactTable compares
   // `columns` and `data` by identity and rebuilds the row model when either changes.
@@ -147,8 +179,63 @@ export function GroupPage() {
           </div>
         ),
       },
+      ...(canManageGroupMembers
+        ? [
+            {
+              id: 'actions',
+              header: () => <div className="text-right">Actions</div>,
+              cell: ({ row }) => {
+                const member = row.original;
+                const username = member.sAMAccountName;
+                // Nested groups are structure, managed from their own page.
+                if (member.isGroup || !username) return null;
+
+                const label = member.displayName || member.cn || username;
+                if (confirmRemove === username) {
+                  return (
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="destructive"
+                        disabled={removing === username}
+                        aria-label={`Confirm removing ${label}`}
+                        onClick={() => handleRemove(username)}
+                      >
+                        {removing === username ? 'Removing...' : 'Confirm'}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={removing === username}
+                        onClick={() => setConfirmRemove(null)}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  );
+                }
+                return (
+                  <div className="flex justify-end">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={removing !== null}
+                      aria-label={`Remove ${label}`}
+                      onClick={() => setConfirmRemove(username)}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                );
+              },
+            } satisfies ColumnDef<GroupMember>,
+          ]
+        : []),
     ],
-    []
+    [canManageGroupMembers, confirmRemove, removing, handleRemove]
   );
 
   const table = useReactTable({
@@ -248,6 +335,15 @@ export function GroupPage() {
               <CardHeader className="pb-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <CardTitle className="text-lg">Members ({members.length})</CardTitle>
+                  {canManageGroupMembers && (
+                    <GroupMemberAdd
+                      groupName={group.cn}
+                      memberUsernames={members
+                        .map((m) => m.sAMAccountName)
+                        .filter((name): name is string => !!name)}
+                      onAdded={() => loadGroup(true)}
+                    />
+                  )}
                   {truncated && (
                     <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-200">
                       Showing the first {members.length} members

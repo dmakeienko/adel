@@ -213,6 +213,44 @@ class ApiService {
     }
   }
 
+  // Adds a user to the group from the Groups tab. Distinct from addUserToGroup, which
+  // backs the user profile: this one is gated server-side by the group-management
+  // allow-list. Errors come back as data so the page can show the server's message.
+  async addGroupMember(groupName: string, username: string): Promise<APIResponse> {
+    try {
+      const response = await this.client.post<APIResponse>(
+        `/api/v1/groups/${encodeURIComponent(groupName)}/members`,
+        { username }
+      );
+      return response.data;
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.data) {
+        return error.response.data as APIResponse;
+      }
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error occurred',
+      };
+    }
+  }
+
+  async removeGroupMember(groupName: string, username: string): Promise<APIResponse> {
+    try {
+      const response = await this.client.delete<APIResponse>(
+        `/api/v1/groups/${encodeURIComponent(groupName)}/members/${encodeURIComponent(username)}`
+      );
+      return response.data;
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.data) {
+        return error.response.data as APIResponse;
+      }
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error occurred',
+      };
+    }
+  }
+
   async changePassword(
     oldPassword: string,
     newPassword: string

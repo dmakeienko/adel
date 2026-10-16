@@ -1076,7 +1076,6 @@ func (h *Handler) AddUserToGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Find user DN
 	userDN, err := h.findUserDN(sess.Conn, req.Username)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, models.APIResponse{
@@ -1086,7 +1085,6 @@ func (h *Handler) AddUserToGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Find group DN
 	groupDN, err := h.findGroupDN(sess.Conn, req.GroupName)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, models.APIResponse{
@@ -1096,62 +1094,7 @@ func (h *Handler) AddUserToGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Add user to group
-	modifyReq := ldap.NewModifyRequest(groupDN, nil)
-	modifyReq.Add("member", []string{userDN})
-
-	slog.Info("Attempting to add user to group", //nolint:gosec // G706: structured logging with key-value pairs, not string interpolation
-		"username", req.Username,
-		"user_dn", userDN,
-		"group", req.GroupName,
-		"group_dn", groupDN,
-	)
-
-	if err := sess.Conn.Modify(modifyReq); err != nil {
-		// Log detailed LDAP error information
-		logLDAPError("AddUserToGroup", err, map[string]string{
-			logKeyUsername: req.Username,
-			logKeyUserDN:   userDN,
-			logKeyGroup:    req.GroupName,
-			"groupDN":      groupDN,
-		})
-
-		// Check if user is already a member
-		if strings.Contains(err.Error(), "Entry Already Exists") ||
-			strings.Contains(err.Error(), "LDAP Result Code 68") {
-			writeJSON(w, http.StatusConflict, models.APIResponse{
-				Success: false,
-				Error:   "User is already a member of this group",
-			})
-			return
-		}
-
-		// Check for permission denied
-		if strings.Contains(err.Error(), "Insufficient Access") ||
-			strings.Contains(err.Error(), "LDAP Result Code 50") {
-			writeJSON(w, http.StatusForbidden, models.APIResponse{
-				Success: false,
-				Error:   "Permission denied: You don't have rights to modify this group",
-			})
-			return
-		}
-
-		writeJSON(w, http.StatusInternalServerError, models.APIResponse{
-			Success: false,
-			Error:   fmt.Sprintf("Failed to add user to group: %v", err),
-		})
-		return
-	}
-
-	slog.Info("Successfully added user to group",
-		"username", req.Username,
-		"group", req.GroupName,
-	)
-
-	writeJSON(w, http.StatusOK, models.APIResponse{
-		Success: true,
-		Message: fmt.Sprintf("User %s added to group %s successfully", req.Username, req.GroupName),
-	})
+	h.changeGroupMembership(w, sess, membershipAdd, req.Username, userDN, req.GroupName, groupDN)
 }
 
 // RemoveUserFromGroup removes a user from a group
@@ -1182,7 +1125,6 @@ func (h *Handler) RemoveUserFromGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Find user DN
 	userDN, err := h.findUserDN(sess.Conn, req.Username)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, models.APIResponse{
@@ -1192,7 +1134,6 @@ func (h *Handler) RemoveUserFromGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Find group DN
 	groupDN, err := h.findGroupDN(sess.Conn, req.GroupName)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, models.APIResponse{
@@ -1202,29 +1143,70 @@ func (h *Handler) RemoveUserFromGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Remove user from group
-	modifyReq := ldap.NewModifyRequest(groupDN, nil)
-	modifyReq.Delete("member", []string{userDN})
+	h.changeGroupMembership(w, sess, membershipRemove, req.Username, userDN, req.GroupName, groupDN)
+}
 
-	slog.Info("Attempting to remove user from group", //nolint:gosec // G706: structured logging with key-value pairs, not string interpolation
-		"username", req.Username,
+// membershipOp is the direction of a group membership change.
+type membershipOp int
+
+const (
+	membershipAdd membershipOp = iota
+	membershipRemove
+)
+
+// changeGroupMembership applies one add or remove of a user to a group and writes the
+// response. The caller has already resolved both DNs, so each entry point decides for
+// itself how the group is looked up and who may reach this point.
+func (h *Handler) changeGroupMembership(
+	w http.ResponseWriter,
+	sess *session.Session,
+	op membershipOp,
+	username, userDN, groupName, groupDN string,
+) {
+	modifyReq := ldap.NewModifyRequest(groupDN, nil)
+	operation, attempting, failed, succeeded := "AddUserToGroup",
+		"Attempting to add user to group",
+		"Failed to add user to group",
+		"Successfully added user to group"
+	if op == membershipAdd {
+		modifyReq.Add("member", []string{userDN})
+	} else {
+		modifyReq.Delete("member", []string{userDN})
+		operation, attempting, failed, succeeded = "RemoveUserFromGroup",
+			"Attempting to remove user from group",
+			"Failed to remove user from group",
+			"Successfully removed user from group"
+	}
+
+	slog.Info(attempting, //nolint:gosec // G706: structured logging with key-value pairs, not string interpolation
+		"actor", sess.Username,
+		logKeyUsername, username,
 		"user_dn", userDN,
-		"group", req.GroupName,
+		logKeyGroup, groupName,
 		"group_dn", groupDN,
 	)
 
 	if err := sess.Conn.Modify(modifyReq); err != nil {
-		// Log detailed LDAP error information
-		logLDAPError("RemoveUserFromGroup", err, map[string]string{
-			logKeyUsername: req.Username,
+		logLDAPError(operation, err, map[string]string{
+			logKeyUsername: username,
 			logKeyUserDN:   userDN,
-			logKeyGroup:    req.GroupName,
+			logKeyGroup:    groupName,
 			"groupDN":      groupDN,
 		})
 
-		// Check if user is not a member
-		if strings.Contains(err.Error(), "No Such Attribute") ||
-			strings.Contains(err.Error(), "LDAP Result Code 16") {
+		// Adding an existing member, or removing a non-member, is a state conflict.
+		if op == membershipAdd &&
+			(strings.Contains(err.Error(), "Entry Already Exists") ||
+				strings.Contains(err.Error(), "LDAP Result Code 68")) {
+			writeJSON(w, http.StatusConflict, models.APIResponse{
+				Success: false,
+				Error:   "User is already a member of this group",
+			})
+			return
+		}
+		if op == membershipRemove &&
+			(strings.Contains(err.Error(), "No Such Attribute") ||
+				strings.Contains(err.Error(), "LDAP Result Code 16")) {
 			writeJSON(w, http.StatusNotFound, models.APIResponse{
 				Success: false,
 				Error:   "User is not a member of this group",
@@ -1232,7 +1214,6 @@ func (h *Handler) RemoveUserFromGroup(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Check for permission denied
 		if strings.Contains(err.Error(), "Insufficient Access") ||
 			strings.Contains(err.Error(), "LDAP Result Code 50") {
 			writeJSON(w, http.StatusForbidden, models.APIResponse{
@@ -1244,20 +1225,174 @@ func (h *Handler) RemoveUserFromGroup(w http.ResponseWriter, r *http.Request) {
 
 		writeJSON(w, http.StatusInternalServerError, models.APIResponse{
 			Success: false,
-			Error:   fmt.Sprintf("Failed to remove user from group: %v", err),
+			Error:   fmt.Sprintf("%s: %v", failed, err),
 		})
 		return
 	}
 
-	slog.Info("Successfully removed user from group",
-		"username", req.Username,
-		"group", req.GroupName,
+	slog.Info(succeeded, //nolint:gosec // G706: structured logging with key-value pairs, not string interpolation
+		"actor", sess.Username,
+		logKeyUsername, username,
+		logKeyGroup, groupName,
 	)
 
+	message := fmt.Sprintf("User %s added to group %s successfully", username, groupName)
+	if op == membershipRemove {
+		message = fmt.Sprintf("User %s removed from group %s successfully", username, groupName)
+	}
 	writeJSON(w, http.StatusOK, models.APIResponse{
 		Success: true,
-		Message: fmt.Sprintf("User %s removed from group %s successfully", req.Username, req.GroupName),
+		Message: message,
 	})
+}
+
+// authorizeGroupManagement checks, before any directory access, that the caller may
+// manage group members. It writes the refusal itself and reports false when the request
+// must stop.
+//
+// Only membership of AD_GROUP_MANAGEMENT_ALLOWED_GROUPS grants the capability. Lead and
+// PM roles never do: a lead's access stays view-only, so no lead scoping is consulted
+// here. The caller must also be allowed to browse groups, so management is not a way
+// around the search restrictions.
+func (h *Handler) authorizeGroupManagement(w http.ResponseWriter, sess *session.Session) bool {
+	if !h.config.AD.CanManageGroupMembersFor(sess.MemberOf) {
+		slog.Warn("Group member management denied: user is not a member of any allowed group",
+			logKeyUsername, sess.Username,
+			logKeyUserDN, sess.UserDN,
+			"user_group_count", len(sess.MemberOf),
+		)
+		writeJSON(w, http.StatusForbidden, models.APIResponse{
+			Success: false,
+			Error:   "Group member management is not permitted for this user",
+		})
+		return false
+	}
+
+	if h.config.AD.AccessFor(sess.MemberOf) == config.SearchDenied {
+		writeJSON(w, http.StatusForbidden, models.APIResponse{
+			Success: false,
+			Error:   errMsgSearchNotPermitted,
+		})
+		return false
+	}
+	return true
+}
+
+// resolveManageableGroup finds the group named in the URL. It writes the refusal itself
+// and returns nil when the request must stop.
+func (h *Handler) resolveManageableGroup(w http.ResponseWriter, r *http.Request, sess *session.Session) *models.Group {
+	groupName := strings.TrimSpace(mux.Vars(r)["groupName"])
+	if groupName == "" {
+		writeJSON(w, http.StatusBadRequest, models.APIResponse{
+			Success: false,
+			Error:   "Group name is required",
+		})
+		return nil
+	}
+
+	group, err := h.findGroup(sess.Conn, groupName)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, models.APIResponse{
+			Success: false,
+			Error:   "Group not found",
+		})
+		return nil
+	}
+
+	return group
+}
+
+// AddGroupMember adds a user to the group named in the URL. It backs the Groups tab and
+// is gated by AD_GROUP_MANAGEMENT_ALLOWED_GROUPS. The group comes only from the URL, so
+// the body cannot name a different group than the one that was authorized.
+func (h *Handler) AddGroupMember(w http.ResponseWriter, r *http.Request) {
+	sess := middleware.GetSessionFromContext(r.Context())
+	if sess == nil {
+		writeJSON(w, http.StatusUnauthorized, models.APIResponse{
+			Success: false,
+			Error:   errMsgSessionNotFound,
+		})
+		return
+	}
+
+	if !h.authorizeGroupManagement(w, sess) {
+		return
+	}
+
+	var req models.AddGroupMemberRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, models.APIResponse{
+			Success: false,
+			Error:   errMsgInvalidRequestBody,
+		})
+		return
+	}
+	username := strings.TrimSpace(req.Username)
+	if username == "" {
+		writeJSON(w, http.StatusBadRequest, models.APIResponse{
+			Success: false,
+			Error:   "Username is required",
+		})
+		return
+	}
+
+	group := h.resolveManageableGroup(w, r, sess)
+	if group == nil {
+		return
+	}
+
+	userDN, err := h.findUserDN(sess.Conn, username)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, models.APIResponse{
+			Success: false,
+			Error:   "User not found",
+		})
+		return
+	}
+
+	h.changeGroupMembership(w, sess, membershipAdd, username, userDN, group.CN, group.DN)
+}
+
+// RemoveGroupMember removes a user from the group named in the URL. It is the
+// counterpart of AddGroupMember and carries the same gate.
+func (h *Handler) RemoveGroupMember(w http.ResponseWriter, r *http.Request) {
+	sess := middleware.GetSessionFromContext(r.Context())
+	if sess == nil {
+		writeJSON(w, http.StatusUnauthorized, models.APIResponse{
+			Success: false,
+			Error:   errMsgSessionNotFound,
+		})
+		return
+	}
+
+	if !h.authorizeGroupManagement(w, sess) {
+		return
+	}
+
+	username := strings.TrimSpace(mux.Vars(r)["username"])
+	if username == "" {
+		writeJSON(w, http.StatusBadRequest, models.APIResponse{
+			Success: false,
+			Error:   "Username is required",
+		})
+		return
+	}
+
+	group := h.resolveManageableGroup(w, r, sess)
+	if group == nil {
+		return
+	}
+
+	userDN, err := h.findUserDN(sess.Conn, username)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, models.APIResponse{
+			Success: false,
+			Error:   "User not found",
+		})
+		return
+	}
+
+	h.changeGroupMembership(w, sess, membershipRemove, username, userDN, group.CN, group.DN)
 }
 
 // GetCurrentUser returns information about the currently logged in user

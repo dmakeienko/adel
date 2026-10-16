@@ -56,6 +56,10 @@ type ADConfig struct {
 	// PasswordResetAllowedGroups is a list of group CNs or DNs whose members may
 	// reset another user's password. Empty disables password resets.
 	PasswordResetAllowedGroups []string
+	// GroupManagementAllowedGroups is a list of group CNs or DNs whose members may
+	// add and remove members of other groups from the Groups tab. Empty disables
+	// group member management.
+	GroupManagementAllowedGroups []string
 	// LeadGroupSuffixes are the CN suffixes marking a role-bearing group, e.g. "-lead"
 	// and "-pm". A user in such a group is a lead/PM of the base group named by the CN
 	// with the suffix replaced by LeadGroupWildcard.
@@ -115,23 +119,24 @@ func Load() (*Config, error) {
 			IdleTimeout:  getDurationEnv("IDLE_TIMEOUT", 60) * time.Second,
 		},
 		AD: ADConfig{
-			Server:                     getEnv("AD_SERVER", ""),
-			Port:                       getIntEnv("AD_PORT", 389),
-			BaseDN:                     getEnv("AD_BASE_DN", ""),
-			UseSSL:                     getBoolEnv("AD_USE_SSL", false),
-			SkipTLS:                    getBoolEnv("AD_SKIP_TLS", false),
-			UserFilter:                 getEnv("AD_USER_FILTER", "(objectClass=user)"),
-			GroupFilter:                getEnv("AD_GROUP_FILTER", "(objectClass=group)"),
-			SearchFilter:               getEnv("AD_SEARCH_FILTER", "(objectClass=*)"),
-			SearchBaseDN:               getEnv("AD_SEARCH_BASE_DN", ""),
-			ExcludedObjects:            getDNSliceEnv("AD_EXCLUDED_OBJECTS", nil),
-			MaxSearchResults:           getIntEnv("AD_MAX_SEARCH_RESULTS", 200),
-			ExcludedGroups:             getDNSliceEnv("AD_EXCLUDED_GROUPS", nil),
-			SearchAllowedGroups:        getDNSliceEnv("AD_SEARCH_ALLOWED_GROUPS", nil),
-			PasswordResetAllowedGroups: getDNSliceEnv("AD_PASSWORD_RESET_ALLOWED_GROUPS", nil),
-			LeadGroupSuffixes:          getSliceEnv("AD_LEAD_GROUP_SUFFIXES", nil),
-			LeadGroupWildcard:          getEnv("AD_LEAD_GROUP_WILDCARD", "-*"),
-			CACertPath:                 getEnv("AD_CA_CERT_PATH", ""),
+			Server:                       getEnv("AD_SERVER", ""),
+			Port:                         getIntEnv("AD_PORT", 389),
+			BaseDN:                       getEnv("AD_BASE_DN", ""),
+			UseSSL:                       getBoolEnv("AD_USE_SSL", false),
+			SkipTLS:                      getBoolEnv("AD_SKIP_TLS", false),
+			UserFilter:                   getEnv("AD_USER_FILTER", "(objectClass=user)"),
+			GroupFilter:                  getEnv("AD_GROUP_FILTER", "(objectClass=group)"),
+			SearchFilter:                 getEnv("AD_SEARCH_FILTER", "(objectClass=*)"),
+			SearchBaseDN:                 getEnv("AD_SEARCH_BASE_DN", ""),
+			ExcludedObjects:              getDNSliceEnv("AD_EXCLUDED_OBJECTS", nil),
+			MaxSearchResults:             getIntEnv("AD_MAX_SEARCH_RESULTS", 200),
+			ExcludedGroups:               getDNSliceEnv("AD_EXCLUDED_GROUPS", nil),
+			SearchAllowedGroups:          getDNSliceEnv("AD_SEARCH_ALLOWED_GROUPS", nil),
+			PasswordResetAllowedGroups:   getDNSliceEnv("AD_PASSWORD_RESET_ALLOWED_GROUPS", nil),
+			GroupManagementAllowedGroups: getDNSliceEnv("AD_GROUP_MANAGEMENT_ALLOWED_GROUPS", nil),
+			LeadGroupSuffixes:            getSliceEnv("AD_LEAD_GROUP_SUFFIXES", nil),
+			LeadGroupWildcard:            getEnv("AD_LEAD_GROUP_WILDCARD", "-*"),
+			CACertPath:                   getEnv("AD_CA_CERT_PATH", ""),
 		},
 		TLS: TLSConfig{
 			Enabled:  getBoolEnv("TLS_ENABLED", true),
@@ -238,6 +243,14 @@ func (c *ADConfig) isAllowListed(memberOf []string) bool {
 func (c *ADConfig) CanResetPasswordFor(memberOf []string) bool {
 	return len(c.PasswordResetAllowedGroups) > 0 &&
 		isMemberOfAnyGroup(memberOf, c.PasswordResetAllowedGroups)
+}
+
+// CanManageGroupMembersFor reports whether a user may add and remove group members
+// through the Groups tab. Like password reset, and unlike search access, an empty
+// allow-list disables the feature.
+func (c *ADConfig) CanManageGroupMembersFor(memberOf []string) bool {
+	return len(c.GroupManagementAllowedGroups) > 0 &&
+		isMemberOfAnyGroup(memberOf, c.GroupManagementAllowedGroups)
 }
 
 // isMemberOfAnyGroup matches configured groups by full DN or bare CN,

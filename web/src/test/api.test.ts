@@ -13,6 +13,7 @@ vi.mock('axios', async (importOriginal) => {
         },
         post: vi.fn(),
         get: vi.fn(),
+        delete: vi.fn(),
       })),
       isAxiosError: actual.default.isAxiosError,
     },
@@ -186,6 +187,55 @@ describe('ApiService', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (api as any).client.get.mockRejectedValueOnce(new Error('timeout'));
       expect(await api.getVersion()).toBeNull();
+    });
+  });
+
+  describe('group member management', () => {
+    it('adds a member through the group-scoped endpoint, encoding the group name', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const post = (api as any).client.post;
+      post.mockResolvedValueOnce({ data: { success: true } });
+
+      const result = await api.addGroupMember('Domain Admins', 'alice');
+
+      expect(result.success).toBe(true);
+      expect(post).toHaveBeenCalledWith('/api/v1/groups/Domain%20Admins/members', {
+        username: 'alice',
+      });
+    });
+
+    it('removes a member with a DELETE, encoding both path segments', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const del = (api as any).client.delete;
+      del.mockResolvedValueOnce({ data: { success: true } });
+
+      const result = await api.removeGroupMember('Domain Admins', 'a/b');
+
+      expect(result.success).toBe(true);
+      expect(del).toHaveBeenCalledWith('/api/v1/groups/Domain%20Admins/members/a%2Fb');
+    });
+
+    it('returns the server error as data instead of throwing', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (api as any).client.post.mockRejectedValueOnce(
+        Object.assign(new Error('403'), {
+          isAxiosError: true,
+          response: { data: { success: false, error: 'not permitted' } },
+        })
+      );
+
+      const result = await api.addGroupMember('Staff', 'alice');
+
+      expect(result).toEqual({ success: false, error: 'not permitted' });
+    });
+
+    it('reports a network failure as an error result', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (api as any).client.delete.mockRejectedValueOnce(new Error('offline'));
+
+      const result = await api.removeGroupMember('Staff', 'alice');
+
+      expect(result).toEqual({ success: false, error: 'offline' });
     });
   });
 });

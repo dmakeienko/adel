@@ -417,6 +417,23 @@ curl -k -X POST https://localhost:8080/api/v1/groups/remove-member \
   -d '{"username":"johndoe","groupName":"Developers"}'
 ```
 
+#### Add / Remove a Group Member (Groups tab)
+
+These back the member management on the Groups tab. Unlike `add-member` and
+`remove-member` above, which the user profile uses and which rely on Active Directory
+permissions alone, they are gated by `AD_GROUP_MANAGEMENT_ALLOWED_GROUPS` and return `403`
+to everyone while it is unset. See [Group Member Management](#group-member-management).
+
+```bash
+curl -k -X POST https://localhost:8080/api/v1/groups/Developers/members \
+  -H "Content-Type: application/json" \
+  -H "X-Session-ID: your-session-id" \
+  -d '{"username":"johndoe"}'
+
+curl -k -X DELETE https://localhost:8080/api/v1/groups/Developers/members/johndoe \
+  -H "X-Session-ID: your-session-id"
+```
+
 #### Inspect a Group
 
 Returns a single group by `cn` or `sAMAccountName`, together with its members. Gated by
@@ -542,6 +559,7 @@ Response:
 | AD_EXCLUDED_GROUPS | Semicolon-separated list of group CNs or DNs to exclude from results | |
 | AD_SEARCH_ALLOWED_GROUPS | Semicolon-separated group CNs or DNs allowed to use `/api/v1/search`; empty allows all authenticated users | |
 | AD_PASSWORD_RESET_ALLOWED_GROUPS | Semicolon-separated group CNs or DNs allowed to reset user passwords; empty disables the feature | |
+| AD_GROUP_MANAGEMENT_ALLOWED_GROUPS | Semicolon-separated group CNs or DNs allowed to add and remove group members from the Groups tab; empty disables the feature | |
 | AD_LEAD_GROUP_SUFFIXES | Comma-separated CN suffixes marking a lead/PM group (e.g. `-lead,-pm`); members get search scoped to those groups. **Empty disables lead detection entirely** | |
 | AD_LEAD_GROUP_WILDCARD | Replaces the matched suffix in the derived base-group identifier | -* |
 | RATE_LIMIT_PASSWORD_RESET_REQUESTS | Password resets allowed per user per window; `0` disables throttling | 10 |
@@ -619,6 +637,32 @@ This application check does not grant AD rights. Delegate password-reset permiss
 the configured groups in Active Directory and use LDAPS or StartTLS; AD rejects
 `unicodePwd` changes over an insecure connection. Both the application group check and
 AD authorization must pass.
+
+### Group Member Management
+
+To let selected groups add and remove members from the **Groups** tab:
+
+```bash
+AD_GROUP_MANAGEMENT_ALLOWED_GROUPS=Helpdesk;CN=Directory Admins,OU=Groups,DC=example,DC=com
+```
+
+Matching works as for the other allow-lists (case-insensitive CN or full DN, nested
+membership resolved at login), and as with password reset an empty list denies everyone.
+The two lists are independent: being allowed to reset passwords does not grant group
+management, or the reverse. An allowed caller sees an **Add a member** search box and a
+**Remove** button on each user row of a group's page; removal asks for confirmation.
+Nested member groups have no remove button — manage them from their own page. The
+capability is reported as `canManageGroupMembers` in `GET /api/v1/session`.
+
+Only membership of the allow-list grants this. Lead and PM roles never do: a [lead](#lead-scoping)
+keeps view-only access to their groups and cannot add or remove members unless they are
+also in `AD_GROUP_MANAGEMENT_ALLOWED_GROUPS`. The caller must also be allowed to browse
+groups, so a caller whom `AD_SEARCH_ALLOWED_GROUPS` would deny gets `403`. Every change is
+logged with the acting user.
+
+As with password reset, this check does not grant AD rights. The changes are made over
+the caller's own directory connection, so the caller also needs write access to the
+group's `member` attribute in Active Directory; both checks must pass.
 
 #### Password Complexity
 

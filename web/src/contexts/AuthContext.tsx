@@ -22,6 +22,11 @@ interface AuthContextType {
   /** Whether the current session may reset passwords for directory users. */
   canResetPassword: boolean;
   /**
+   * Whether the current session may add and remove group members from the Groups tab.
+   * Controls visibility only; the server re-checks on every change.
+   */
+  canManageGroupMembers: boolean;
+  /**
    * Wildcard identifiers of the groups this user leads, empty for a non-lead. Drives
    * whether the Team tab is offered; the server re-derives the scope on every request.
    */
@@ -44,6 +49,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [canSearch, setCanSearch] = useState(false);
   const [canResetPassword, setCanResetPassword] = useState(false);
+  const [canManageGroupMembers, setCanManageGroupMembers] = useState(false);
   const [leadGroups, setLeadGroups] = useState<string[]>([]);
 
   const refreshSearchPermission = useCallback(async () => {
@@ -51,10 +57,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const info = await api.getSessionInfo();
       setCanSearch(info?.canSearch ?? false);
       setCanResetPassword(info?.canResetPassword ?? false);
+      setCanManageGroupMembers(info?.canManageGroupMembers ?? false);
       setLeadGroups(info?.lead_group_membership ?? []);
     } catch {
       setCanSearch(false);
       setCanResetPassword(false);
+      setCanManageGroupMembers(false);
       setLeadGroups([]);
     }
   }, []);
@@ -64,6 +72,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setUser(null);
       setCanSearch(false);
       setCanResetPassword(false);
+      setCanManageGroupMembers(false);
       setLeadGroups([]);
       setIsLoading(false);
       return;
@@ -80,6 +89,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setIsAuthenticated(false);
         setCanSearch(false);
         setCanResetPassword(false);
+        setCanManageGroupMembers(false);
         setLeadGroups([]);
         api.setSessionId(null);
       }
@@ -88,6 +98,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setIsAuthenticated(false);
       setCanSearch(false);
       setCanResetPassword(false);
+      setCanManageGroupMembers(false);
       setLeadGroups([]);
       api.setSessionId(null);
     } finally {
@@ -122,6 +133,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setIsAuthenticated(false);
       setCanSearch(false);
       setCanResetPassword(false);
+      setCanManageGroupMembers(false);
       setLeadGroups([]);
       api.setSessionId(null);
     }
@@ -135,6 +147,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         isLoading,
         canSearch,
         canResetPassword,
+        canManageGroupMembers,
         leadGroups,
         isLead: leadGroups.length > 0,
         login,

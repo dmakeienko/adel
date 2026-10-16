@@ -325,7 +325,7 @@ func TestCanResetPasswordFor(t *testing.T) {
 		want          bool
 	}{
 		{name: "empty allow-list disables reset", memberOf: []string{dnHelpdesk}, want: false},
-		{name: "matches bare CN", memberOf: []string{dnHelpdesk}, allowedGroups: []string{"helpdesk"}, want: true},
+		{name: "matches bare CN", memberOf: []string{dnHelpdesk}, allowedGroups: []string{"helpdesk"}, want: true}, //nolint:goconst // test fixture value
 		{name: "matches full DN", memberOf: []string{dnHelpdesk}, allowedGroups: []string{"cn=helpdesk,ou=groups,dc=example,dc=com"}, want: true},
 		{name: "matches nested membership", memberOf: []string{dnEmployees, dnHelpdesk}, allowedGroups: []string{"Helpdesk"}, want: true},
 		{name: "rejects another group", memberOf: []string{dnEmployees}, allowedGroups: []string{"Helpdesk"}, want: false},
@@ -339,6 +339,76 @@ func TestCanResetPasswordFor(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCanManageGroupMembersFor(t *testing.T) {
+	tests := []struct {
+		name          string
+		memberOf      []string
+		allowedGroups []string
+		want          bool
+	}{
+		{name: "empty allow-list disables management", memberOf: []string{dnHelpdesk}, want: false},
+		{name: "matches bare CN", memberOf: []string{dnHelpdesk}, allowedGroups: []string{"helpdesk"}, want: true},
+		{name: "matches full DN", memberOf: []string{dnHelpdesk}, allowedGroups: []string{"cn=helpdesk,ou=groups,dc=example,dc=com"}, want: true},
+		{name: "matches nested membership", memberOf: []string{dnEmployees, dnHelpdesk}, allowedGroups: []string{"Helpdesk"}, want: true},
+		{name: "rejects another group", memberOf: []string{dnEmployees}, allowedGroups: []string{"Helpdesk"}, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &ADConfig{GroupManagementAllowedGroups: tt.allowedGroups}
+			if got := cfg.CanManageGroupMembersFor(tt.memberOf); got != tt.want {
+				t.Errorf("CanManageGroupMembersFor(%v) = %v, want %v", tt.memberOf, got, tt.want)
+			}
+		})
+	}
+}
+
+// The password-reset and group-management allow-lists are independent: holding one
+// capability must never grant the other.
+func TestGroupManagementIsIndependentOfPasswordReset(t *testing.T) {
+	cfg := &ADConfig{PasswordResetAllowedGroups: []string{"Helpdesk"}}
+	if cfg.CanManageGroupMembersFor([]string{dnHelpdesk}) {
+		t.Error("password-reset group must not grant group management")
+	}
+
+	cfg = &ADConfig{GroupManagementAllowedGroups: []string{"Helpdesk"}}
+	if cfg.CanResetPasswordFor([]string{dnHelpdesk}) {
+		t.Error("group-management group must not grant password reset")
+	}
+}
+
+func TestLoadGroupManagementAllowedGroups(t *testing.T) {
+	os.Setenv("AD_SERVER", "test-ad.example.com")
+	os.Setenv("AD_BASE_DN", "dc=test,dc=com")
+	defer os.Unsetenv("AD_SERVER")
+	defer os.Unsetenv("AD_BASE_DN")
+
+	t.Run("unset disables the feature", func(t *testing.T) {
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load() error = %v", err)
+		}
+		if len(cfg.AD.GroupManagementAllowedGroups) != 0 {
+			t.Errorf("GroupManagementAllowedGroups = %v, want empty", cfg.AD.GroupManagementAllowedGroups)
+		}
+	})
+
+	t.Run("semicolons separate entries so DNs keep their commas", func(t *testing.T) {
+		os.Setenv("AD_GROUP_MANAGEMENT_ALLOWED_GROUPS", "Helpdesk; CN=Admins,OU=Groups,DC=example,DC=com")
+		defer os.Unsetenv("AD_GROUP_MANAGEMENT_ALLOWED_GROUPS")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load() error = %v", err)
+		}
+		want := []string{"Helpdesk", "CN=Admins,OU=Groups,DC=example,DC=com"}
+		got := cfg.AD.GroupManagementAllowedGroups
+		if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+			t.Errorf("GroupManagementAllowedGroups = %v, want %v", got, want)
+		}
+	})
 }
 
 func TestIsSearchAllowedFor(t *testing.T) {
