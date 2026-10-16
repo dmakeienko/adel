@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Link, useBlocker } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import {
   useReactTable,
@@ -14,7 +14,6 @@ import { useAuth } from '../contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Table,
@@ -37,8 +36,11 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
   const [searchResults, setSearchResults] = useState<Group[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [pendingChanges, setPendingChanges] = useState<Map<string, 'add' | 'remove'>>(new Map());
+  // The group (by DN) whose removal is awaiting confirmation. Removal is applied as soon
+  // as it is confirmed, as on the Groups tab, so there is no staged state to save.
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
+  // A change is in flight: the group being removed, or "add" while one is being added.
+  const [busy, setBusy] = useState<string | null>(null);
   // Direct-only by default: inherited groups are informational and can bulk out the
   // table considerably on users nested deep in the hierarchy.
   const [showNested, setShowNested] = useState(false);
@@ -142,40 +144,6 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
     loadUserGroups();
   }, [allGroups, user.memberOf, loadUserGroups]);
 
-  // Browsers own the appearance and wording of this confirmation, but setting a
-  // return value makes the standard leave-page prompt appear for refreshes and
-  // closing the tab while membership edits have not been saved.
-  useEffect(() => {
-    if (pendingChanges.size === 0) return;
-
-    const warnAboutUnsavedChanges = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = 'Your group membership changes have not been applied.';
-    };
-
-    window.addEventListener('beforeunload', warnAboutUnsavedChanges);
-    return () => window.removeEventListener('beforeunload', warnAboutUnsavedChanges);
-  }, [pendingChanges]);
-
-  // beforeunload cannot cover SPA route changes because the page stays open.
-  // Block those separately and use a confirm window with a clear explanation.
-  const blocker = useBlocker(({ currentLocation, nextLocation }) =>
-    pendingChanges.size > 0 && currentLocation.pathname !== nextLocation.pathname
-  );
-
-  useEffect(() => {
-    if (blocker.state !== 'blocked') return;
-
-    const shouldLeave = window.confirm(
-      'Your group membership changes have not been applied. Leave this page without saving?'
-    );
-    if (shouldLeave) {
-      blocker.proceed();
-    } else {
-      blocker.reset();
-    }
-  }, [blocker]);
-
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
@@ -210,99 +178,44 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
     };
   }, [searchQuery, canSearch]);
 
-  const addGroupToTable = (group: Group) => {
-    const newGroupStatus: UserGroupStatus = { group, isMember: true, membershipType: 'direct' };
-    setGroups((prev) => [...prev, newGroupStatus].sort((a, b) => a.group.cn.localeCompare(b.group.cn)));
-    setPendingChanges((prev) => {
-      const next = new Map(prev);
-      next.set(group.cn, 'add');
-      return next;
-    });
-    setSearchQuery('');
-    setSearchResults([]);
-    setIsSearchOpen(false);
+  // sAMAccountName is unique in the domain, whereas a CN can repeat across OUs and would
+  // let the server pick the wrong group.
+  const groupIdentifier = (group: Group) => group.sAMAccountName || group.cn;
+
+  const addGroup = async (group: Group) => {
+    if (busy) return;
+    setBusy('add');
+    const response = await api.addUserToGroup(user.sAMAccountName, groupIdentifier(group));
+    setBusy(null);
+
+    if (response.success) {
+      showNotification(`Added ${user.sAMAccountName} to ${group.cn}.`, 'success');
+      setSearchQuery('');
+      setSearchResults([]);
+      setIsSearchOpen(false);
+      if (onUpdate) onUpdate();
+    } else {
+      showNotification(response.error || response.message || 'Failed to add to group.', 'error');
+    }
   };
 
   // Stable identity so the memoised columns below are not rebuilt on every render.
-  const toggleMembership = useCallback((groupCN: string, currentStatus: boolean) => {
-    setGroups((prev) =>
-      prev.map((g) => g.group.cn === groupCN ? { ...g, isMember: !currentStatus } : g)
-    );
-    setPendingChanges((prev) => {
-      const next = new Map(prev);
-      const originalMember = user.memberOf?.some((dn) =>
-        dn.toLowerCase().includes(`cn=${groupCN.toLowerCase()}`)
-      );
-      if (originalMember) {
-        if (currentStatus) next.set(groupCN, 'remove');
-        else next.delete(groupCN);
-      } else {
-        if (!currentStatus) next.set(groupCN, 'add');
-        else next.delete(groupCN);
-      }
-      return next;
-    });
-  }, [user.memberOf]);
-
-  // Discards every unsaved change. Rows added since the last save are dropped outright;
-  // rows that only had their checkbox toggled are restored to being a member, which is
-  // the state anything already in the table started from.
-  const handleCancel = () => {
-    if (pendingChanges.size === 0) return;
-
-    const added = new Set(
-      [...pendingChanges].filter(([, action]) => action === 'add').map(([cn]) => cn)
-    );
-    const addedButNotSaved = new Set(
-      [...added].filter(
-        (cn) =>
-          !user.memberOf?.some((dn) => extractCNFromDN(dn).toLowerCase() === cn.toLowerCase())
-      )
-    );
-
-    setGroups((prev) =>
-      prev
-        .filter((g) => !addedButNotSaved.has(g.group.cn))
-        .map((g) => (g.isMember ? g : { ...g, isMember: true }))
-    );
-    setPendingChanges(new Map());
-  };
-
-  const handleSave = async () => {
-    if (pendingChanges.size === 0) {
-      showNotification('No changes to save', 'info');
-      return;
-    }
-
-    setIsSaving(true);
-    let successCount = 0;
-    const errors: string[] = [];
-
-    for (const [groupName, action] of pendingChanges) {
-      const response = action === 'add'
-        ? await api.addUserToGroup(user.sAMAccountName, groupName)
-        : await api.removeUserFromGroup(user.sAMAccountName, groupName);
+  const removeGroup = useCallback(
+    async (group: Group) => {
+      setBusy(group.dn);
+      const response = await api.removeUserFromGroup(user.sAMAccountName, groupIdentifier(group));
+      setBusy(null);
+      setConfirmRemove(null);
 
       if (response.success) {
-        successCount++;
+        showNotification(`Removed ${user.sAMAccountName} from ${group.cn}.`, 'success');
+        if (onUpdate) onUpdate();
       } else {
-        errors.push(`${groupName}: ${response.error || 'Unknown error'}`);
+        showNotification(response.error || response.message || 'Failed to remove from group.', 'error');
       }
-    }
-
-    setIsSaving(false);
-    setPendingChanges(new Map());
-
-    if (errors.length === 0) {
-      showNotification(`Successfully updated ${successCount} group membership(s)`, 'success');
-    } else if (successCount > 0) {
-      showNotification(`Updated ${successCount} membership(s). Errors: ${errors.join('; ')}`, 'warning', 15000);
-    } else {
-      showNotification(`Failed to update memberships: ${errors.join('; ')}`, 'error', 15000);
-    }
-
-    if (onUpdate) onUpdate();
-  };
+    },
+    [user.sAMAccountName, showNotification, onUpdate]
+  );
 
   // Also memoised: useReactTable compares `columns` by identity as well.
   const columns: ColumnDef<UserGroupStatus>[] = useMemo(() => [
@@ -358,31 +271,67 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
       ),
     },
     {
-      accessorKey: 'isMember',
-      header: () => <div className="text-center">Status</div>,
+      id: 'actions',
+      header: () => <div className="text-right">Actions</div>,
       cell: ({ row }) => {
+        const { group, membershipType } = row.original;
+
         // Inherited membership lives on the parent group, not the user, so it cannot
         // be revoked here — removing the user from this group would be a no-op.
-        const isNested = row.original.membershipType === 'nested';
+        if (membershipType === 'nested') {
+          return (
+            <div
+              className="text-right text-xs text-muted-foreground"
+              title="Inherited membership — change it on the parent group"
+            >
+              Inherited
+            </div>
+          );
+        }
+
+        if (confirmRemove === group.dn) {
+          return (
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="destructive"
+                disabled={busy === group.dn}
+                aria-label={`Confirm removing from ${group.cn}`}
+                onClick={() => removeGroup(group)}
+              >
+                {busy === group.dn ? 'Removing...' : 'Confirm'}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={busy === group.dn}
+                onClick={() => setConfirmRemove(null)}
+              >
+                Cancel
+              </Button>
+            </div>
+          );
+        }
+
         return (
-          <div className="flex justify-center">
-            <Checkbox
-              checked={row.original.isMember}
-              disabled={isNested}
-              title={
-                isNested
-                  ? 'Inherited membership — change it on the parent group'
-                  : undefined
-              }
-              onCheckedChange={() =>
-                toggleMembership(row.original.group.cn, row.original.isMember)
-              }
-            />
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={busy !== null}
+              aria-label={`Remove from ${group.cn}`}
+              onClick={() => setConfirmRemove(group.dn)}
+            >
+              Remove
+            </Button>
           </div>
         );
       },
     },
-  ], [toggleMembership, canSearch]);
+  ], [canSearch, confirmRemove, busy, removeGroup]);
 
   // groups always holds both kinds; the toggle only narrows what is rendered, so
   // flipping it is instant and the search dedupe below still sees nested memberships.
@@ -450,6 +399,7 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onFocus={() => searchResults.length > 0 && setIsSearchOpen(true)}
+                disabled={busy !== null}
                 className="pl-10"
               />
               {isSearching && (
@@ -463,7 +413,8 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
                   <button
                     key={group.dn}
                     className="flex flex-col gap-1 px-4 py-3 w-full text-left hover:bg-muted transition-colors border-b border-border last:border-0"
-                    onClick={() => addGroupToTable(group)}
+                    disabled={busy !== null}
+                    onClick={() => addGroup(group)}
                   >
                     <span className="text-sm font-medium text-foreground">{group.cn}</span>
                     <span className="text-xs text-muted-foreground">{group.description || 'No description'}</span>
@@ -501,10 +452,7 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
                 </TableRow>
               ) : (
                 table.getRowModel().rows.map((row) => (
-                  <TableRow
-                    key={row.id}
-                    className={pendingChanges.has(row.original.group.cn) ? 'bg-amber-50' : ''}
-                  >
+                  <TableRow key={row.id}>
                     {row.getVisibleCells().map((cell) => (
                       <TableCell key={cell.id}>
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -515,28 +463,6 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
               )}
             </TableBody>
           </Table>
-        </div>
-
-        {/* Actions */}
-        <div className="flex items-center justify-start gap-4 pt-1">
-          <Button
-            onClick={handleSave}
-            disabled={isSaving || pendingChanges.size === 0}
-          >
-            {isSaving ? 'Saving...' : 'Save'}
-          </Button>
-          <Button
-            variant="outline"
-            onClick={handleCancel}
-            disabled={isSaving || pendingChanges.size === 0}
-          >
-            Cancel
-          </Button>
-          {pendingChanges.size > 0 && (
-            <span className="text-sm font-medium text-amber-700">
-              {pendingChanges.size} pending change(s)
-            </span>
-          )}
         </div>
       </CardContent>
     </Card>

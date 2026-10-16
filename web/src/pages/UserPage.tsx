@@ -22,10 +22,12 @@ export function UserPage() {
   const [isLoadingUser, setIsLoadingUser] = useState(true);
   const [isResetPasswordOpen, setIsResetPasswordOpen] = useState(false);
 
-  const loadUser = useCallback(async () => {
+  // `silent` refreshes in place after a change, instead of swapping the page for the
+  // loading spinner, which would also unmount the membership table mid-action.
+  const loadUser = useCallback(async (silent = false) => {
     if (!username) return;
 
-    setIsLoadingUser(true);
+    if (!silent) setIsLoadingUser(true);
     try {
       const response = await api.getUser(username);
       if (response.success && response.user) {
@@ -41,6 +43,9 @@ export function UserPage() {
       setIsLoadingUser(false);
     }
   }, [username, showNotification]);
+
+  // Stable, so the membership table's memoised columns are not rebuilt by every render.
+  const refreshUser = useCallback(() => loadUser(true), [loadUser]);
 
   useEffect(() => {
     if (isAuthenticated && username) {
@@ -176,7 +181,7 @@ export function UserPage() {
               </CardContent>
             </Card>
 
-            <GroupMembership user={user} onUpdate={loadUser} />
+            <GroupMembership user={user} onUpdate={refreshUser} />
           </div>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
@@ -193,7 +198,7 @@ export function UserPage() {
           open={isResetPasswordOpen}
           targetUsername={user.sAMAccountName}
           onClose={() => setIsResetPasswordOpen(false)}
-          onReset={loadUser}
+          onReset={refreshUser}
         />
       )}
     </div>

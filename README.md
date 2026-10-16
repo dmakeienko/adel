@@ -259,9 +259,11 @@ rather than failing.
 
 In the web UI, the group membership table requests nested groups and labels them with a
 `nested` badge. A **Direct only / All** toggle controls whether they are listed,
-defaulting to direct only. Inherited memberships render with a disabled checkbox: they
-live on the parent group, so removing the user from the nested group would have no
-effect — the parent membership has to be changed instead.
+defaulting to direct only. Each direct membership has a **Remove** button that asks for
+**Confirm** or **Cancel** and applies immediately, and picking a group from the search box
+adds it immediately; there is no staged Save step. Inherited memberships show "Inherited"
+instead of a button: they live on the parent group, so removing the user from the nested
+group would have no effect — the parent membership has to be changed instead.
 
 #### Group Membership and Leadership Roles
 
