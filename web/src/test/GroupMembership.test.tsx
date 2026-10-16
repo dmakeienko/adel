@@ -23,8 +23,11 @@ vi.mock('../services/api', () => ({
   },
 }));
 
+// One stable function, as the real provider supplies: a new one per render would rebuild
+// the table's memoised columns and remount its buttons mid-interaction.
+const showNotification = vi.fn();
 vi.mock('../contexts/NotificationContext', () => ({
-  useNotification: () => ({ showNotification: vi.fn() }),
+  useNotification: () => ({ showNotification }),
 }));
 
 // canSearch drives whether the debounced group-search effect runs at all. The render
@@ -85,6 +88,39 @@ describe('GroupMembership nested toggle', () => {
     expect(screen.queryByText('All Staff')).not.toBeInTheDocument();
   });
 
+  // The nested lookup is the slow call. The switch and the direct rows must not wait on it.
+  it('shows the switch and direct rows before the nested lookup returns', async () => {
+    let finish: (value: Awaited<ReturnType<typeof api.resolveGroups>>) => void = () => {};
+    vi.mocked(api.resolveGroups).mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve;
+      })
+    );
+    renderWithRouter(<GroupMembership user={user} />);
+
+    // Both are there while the lookup is still pending.
+    expect(screen.getByRole('button', { name: 'Direct only' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'All' })).toBeInTheDocument();
+    expect(screen.getByText('Engineering')).toBeInTheDocument();
+
+    // Switching early says what is happening rather than showing nothing new.
+    fireEvent.click(screen.getByRole('button', { name: 'All' }));
+    expect(screen.getByText('Loading inherited groups...')).toBeInTheDocument();
+
+    finish({
+      success: true,
+      count: 2,
+      groups: [
+        { dn: DIRECT_DN, cn: 'Engineering', sAMAccountName: 'Engineering', description: 'Engineers' },
+        { dn: NESTED_DN, cn: 'All Staff', sAMAccountName: 'All Staff', description: 'Everyone', nested: true },
+      ],
+    });
+
+    expect(await screen.findByText('All Staff')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'All (2)' })).toBeInTheDocument();
+    expect(screen.queryByText('Loading inherited groups...')).not.toBeInTheDocument();
+  });
+
   it('resolves memberships from the user being viewed', async () => {
     renderWithRouter(<GroupMembership user={user} />);
 
@@ -135,11 +171,11 @@ describe('GroupMembership nested toggle', () => {
   });
 });
 
-describe('GroupMembership cancel', () => {
+describe('GroupMembership remove and add flow', () => {
   const NEW_GROUP = {
     dn: 'CN=Platform,OU=Groups,DC=example,DC=com',
     cn: 'Platform',
-    sAMAccountName: 'Platform',
+    sAMAccountName: 'platform-sam',
     description: 'Platform team',
   };
 
@@ -147,13 +183,20 @@ describe('GroupMembership cancel', () => {
     canSearch = true;
     vi.mocked(api.resolveGroups).mockResolvedValue({
       success: true,
-      count: 1,
+      count: 2,
       groups: [
         {
           dn: DIRECT_DN,
           cn: 'Engineering',
           sAMAccountName: 'Engineering',
           description: 'Engineers',
+        },
+        {
+          dn: NESTED_DN,
+          cn: 'All Staff',
+          sAMAccountName: 'All Staff',
+          description: 'Everyone',
+          nested: true,
         },
       ],
     });
@@ -168,140 +211,98 @@ describe('GroupMembership cancel', () => {
     vi.clearAllMocks();
   });
 
-  // Adds a group via the search box and returns once it is pending.
-  async function addPendingGroup() {
+  it('no longer renders checkboxes or a Save step', async () => {
     renderWithRouter(<GroupMembership user={user} />);
     await screen.findByText('Engineering');
 
-    fireEvent.change(screen.getByPlaceholderText('Search groups to add...'), {
-      target: { value: 'plat' },
-    });
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove from Engineering' })).toBeInTheDocument();
+  });
 
-    fireEvent.click(await screen.findByText('Platform team'));
-    await screen.findByText(/1 pending change/);
-  }
-
-  it('is disabled until there is something to cancel', async () => {
+  it('asks for confirmation first, and cancelling makes no request', async () => {
     renderWithRouter(<GroupMembership user={user} />);
-    await screen.findByText('Engineering');
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove from Engineering' }));
 
-    expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
-  });
-
-  it('removes a pending addition and its pending state', async () => {
-    await addPendingGroup();
-    expect(screen.getByText('Platform')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Confirm removing from Engineering' })).toBeInTheDocument();
+    expect(api.removeUserFromGroup).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
 
-    await waitFor(() => {
-      expect(screen.queryByText('Platform')).not.toBeInTheDocument();
-    });
-    expect(screen.queryByText(/pending change/)).not.toBeInTheDocument();
-    // Existing memberships must survive the discard.
-    expect(screen.getByText('Engineering')).toBeInTheDocument();
-  });
-
-  it('clears a pending removal without dropping the existing row', async () => {
-    renderWithRouter(<GroupMembership user={user} />);
-    await screen.findByText('Engineering');
-
-    fireEvent.click(screen.getByRole('checkbox'));
-    await screen.findByText(/1 pending change/);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-
-    await waitFor(() => {
-      expect(screen.queryByText(/pending change/)).not.toBeInTheDocument();
-    });
-    // An existing membership must be restored, not discarded as if it were newly added.
-    expect(screen.getByText('Engineering')).toBeInTheDocument();
-    expect(screen.getByRole('checkbox')).toHaveAttribute('data-state', 'checked');
-  });
-
-  it('does not call the API when cancelling', async () => {
-    await addPendingGroup();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-
-    await waitFor(() => {
-      expect(screen.queryByText(/pending change/)).not.toBeInTheDocument();
-    });
-    expect(api.addUserToGroup).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Remove from Engineering' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Confirm removing/ })).not.toBeInTheDocument();
     expect(api.removeUserFromGroup).not.toHaveBeenCalled();
   });
-});
 
-describe('GroupMembership unsaved changes warning', () => {
-  beforeEach(() => {
-    canSearch = true;
-    vi.mocked(api.resolveGroups).mockResolvedValue({
-      success: true,
-      count: 1,
-      groups: [
-        {
-          dn: DIRECT_DN,
-          cn: 'Engineering',
-          sAMAccountName: 'Engineering',
-          description: 'Engineers',
-        },
-      ],
+  it('removes on confirm using the group sAMAccountName, then refreshes', async () => {
+    vi.mocked(api.removeUserFromGroup).mockResolvedValue({ success: true });
+    const onUpdate = vi.fn();
+    renderWithRouter(<GroupMembership user={user} onUpdate={onUpdate} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove from Engineering' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm removing from Engineering' }));
+
+    await waitFor(() =>
+      expect(api.removeUserFromGroup).toHaveBeenCalledWith('testuser', 'Engineering')
+    );
+    await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1));
+  });
+
+  it('keeps the row and does not refresh when the server refuses', async () => {
+    vi.mocked(api.removeUserFromGroup).mockResolvedValue({
+      success: false,
+      error: 'Permission denied',
     });
-    vi.mocked(api.searchGroups).mockResolvedValue({ success: true, count: 0, groups: [] });
+    const onUpdate = vi.fn();
+    renderWithRouter(<GroupMembership user={user} onUpdate={onUpdate} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove from Engineering' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm removing from Engineering' }));
+
+    await waitFor(() => expect(api.removeUserFromGroup).toHaveBeenCalled());
+    expect(onUpdate).not.toHaveBeenCalled();
+    expect(await screen.findByRole('button', { name: 'Remove from Engineering' })).toBeInTheDocument();
   });
 
-  afterEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it('warns before refresh or close while group changes are pending', async () => {
+  it('offers no remove button for inherited groups', async () => {
     renderWithRouter(<GroupMembership user={user} />);
-    await screen.findByText('Engineering');
 
-    fireEvent.click(screen.getByRole('checkbox'));
-    await screen.findByText(/1 pending change/);
+    fireEvent.click(await screen.findByRole('button', { name: /^All \(/ }));
+    await screen.findByText('All Staff');
 
-    const event = new Event('beforeunload', { cancelable: true });
-    const canLeave = window.dispatchEvent(event);
-
-    expect(canLeave).toBe(false);
-    expect(event.defaultPrevented).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Remove from All Staff' })).not.toBeInTheDocument();
+    expect(screen.getByText('Inherited')).toBeInTheDocument();
   });
 
-  it('removes the warning after pending changes are cancelled', async () => {
-    renderWithRouter(<GroupMembership user={user} />);
+  it('adds a searched group immediately, by sAMAccountName, and clears the search', async () => {
+    vi.mocked(api.addUserToGroup).mockResolvedValue({ success: true });
+    const onUpdate = vi.fn();
+    renderWithRouter(<GroupMembership user={user} onUpdate={onUpdate} />);
     await screen.findByText('Engineering');
 
-    fireEvent.click(screen.getByRole('checkbox'));
-    await screen.findByText(/1 pending change/);
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    const box = screen.getByPlaceholderText('Search groups to add...');
+    fireEvent.change(box, { target: { value: 'plat' } });
+    fireEvent.click(await screen.findByText('Platform team'));
 
-    await waitFor(() => {
-      expect(screen.queryByText(/pending change/)).not.toBeInTheDocument();
-    });
-
-    const event = new Event('beforeunload', { cancelable: true });
-    const canLeave = window.dispatchEvent(event);
-
-    expect(canLeave).toBe(true);
-    expect(event.defaultPrevented).toBe(false);
+    await waitFor(() =>
+      expect(api.addUserToGroup).toHaveBeenCalledWith('testuser', 'platform-sam')
+    );
+    await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1));
+    expect(box).toHaveValue('');
   });
 
-  it('confirms before navigating to another application page', async () => {
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
-    const { router } = renderWithRouter(<GroupMembership user={user} />);
+  it('keeps the search text when adding fails', async () => {
+    vi.mocked(api.addUserToGroup).mockResolvedValue({ success: false, error: 'Permission denied' });
+    const onUpdate = vi.fn();
+    renderWithRouter(<GroupMembership user={user} onUpdate={onUpdate} />);
     await screen.findByText('Engineering');
 
-    fireEvent.click(screen.getByRole('checkbox'));
-    await screen.findByText(/1 pending change/);
-    fireEvent.click(screen.getByRole('link', { name: 'Engineering' }));
+    const box = screen.getByPlaceholderText('Search groups to add...');
+    fireEvent.change(box, { target: { value: 'plat' } });
+    fireEvent.click(await screen.findByText('Platform team'));
 
-    await waitFor(() => {
-      expect(confirmSpy).toHaveBeenCalledWith(
-        'Your group membership changes have not been applied. Leave this page without saving?'
-      );
-    });
-    expect(router.state.location.pathname).toBe('/user/testuser');
-    confirmSpy.mockRestore();
+    await waitFor(() => expect(api.addUserToGroup).toHaveBeenCalled());
+    expect(onUpdate).not.toHaveBeenCalled();
+    expect(box).toHaveValue('plat');
   });
 });
