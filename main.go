@@ -196,6 +196,7 @@ func setupRouter(handler *handlers.Handler, sessionMgr *session.Manager, cfg *co
 	// the literal one-segment routes above, and the handlers enforce the env-var gate.
 	protected.HandleFunc("/groups/{groupName}/members", handler.AddGroupMember).Methods(http.MethodPost)
 	protected.HandleFunc("/groups/{groupName}/members/{username}", handler.RemoveGroupMember).Methods(http.MethodDelete)
+	protected.HandleFunc("/groups/{groupName}/member-groups/{memberGroup}", handler.RemoveMemberGroup).Methods(http.MethodDelete)
 	// Registered after the literal /groups/* routes above so those keep precedence over
 	// the wildcard, which would otherwise swallow "resolve", "add-member" and friends.
 	protected.HandleFunc("/groups/{groupName}", handler.GetGroup).Methods(http.MethodGet)

@@ -234,6 +234,45 @@ class ApiService {
     }
   }
 
+  // Nests a group inside the group being managed. Same gate and endpoint as
+  // addGroupMember; the body names a group instead of a user.
+  async addMemberGroup(groupName: string, memberGroup: string): Promise<APIResponse> {
+    try {
+      const response = await this.client.post<APIResponse>(
+        `/api/v1/groups/${encodeURIComponent(groupName)}/members`,
+        { memberGroup }
+      );
+      return response.data;
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.data) {
+        return error.response.data as APIResponse;
+      }
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error occurred',
+      };
+    }
+  }
+
+  // Takes a nested group out of the group being managed. A separate route from
+  // removeGroupMember so a group and a user with the same name are never confused.
+  async removeMemberGroup(groupName: string, memberGroup: string): Promise<APIResponse> {
+    try {
+      const response = await this.client.delete<APIResponse>(
+        `/api/v1/groups/${encodeURIComponent(groupName)}/member-groups/${encodeURIComponent(memberGroup)}`
+      );
+      return response.data;
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.data) {
+        return error.response.data as APIResponse;
+      }
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error occurred',
+      };
+    }
+  }
+
   async removeGroupMember(groupName: string, username: string): Promise<APIResponse> {
     try {
       const response = await this.client.delete<APIResponse>(

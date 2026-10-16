@@ -87,10 +87,12 @@ type GroupMembershipRequest struct {
 	GroupName string `json:"groupName"`
 }
 
-// AddGroupMemberRequest is the body of the Groups-tab add-member call. The group is
-// carried in the URL and never accepted from this body.
+// AddGroupMemberRequest is the body of the Groups-tab add-member call. Exactly one of
+// Username and MemberGroup is set: a user to add, or a group to nest. The target group
+// is carried in the URL and never accepted from this body.
 type AddGroupMemberRequest struct {
-	Username string `json:"username"`
+	Username    string `json:"username,omitempty"`
+	MemberGroup string `json:"memberGroup,omitempty"`
 }
 
 // GetGroupsRequest represents get all groups request

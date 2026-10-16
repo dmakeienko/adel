@@ -10,8 +10,11 @@ vi.mock('../services/api', () => ({
   default: {
     getGroup: vi.fn(),
     searchUsers: vi.fn(),
+    searchGroups: vi.fn(),
+    addMemberGroup: vi.fn(),
     addGroupMember: vi.fn(),
     removeGroupMember: vi.fn(),
+    removeMemberGroup: vi.fn(),
   },
 }));
 vi.mock('../components/Sidebar', () => ({ Sidebar: () => null }));
@@ -90,11 +93,54 @@ describe('GroupPage member management', () => {
     expect(screen.queryByText('Actions')).not.toBeInTheDocument();
   });
 
-  it('offers no removal for nested groups', async () => {
+  it('offers a remove button for users and nested groups alike', async () => {
     renderPage();
 
     await screen.findByText('Members (2)');
-    expect(screen.getAllByRole('button', { name: /^Remove/ })).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Remove Ann Lee' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove Sub' })).toBeInTheDocument();
+  });
+
+  it('removes a nested group through the group endpoint, not the user one', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.removeMemberGroup).mockResolvedValue({ success: true });
+    renderPage();
+
+    await user.click(await screen.findByRole('button', { name: 'Remove Sub' }));
+    expect(api.removeMemberGroup).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Confirm removing Sub' }));
+
+    await waitFor(() => expect(api.removeMemberGroup).toHaveBeenCalledWith('Staff', 'Sub'));
+    expect(api.removeGroupMember).not.toHaveBeenCalled();
+    await waitFor(() => expect(api.getGroup).toHaveBeenCalledTimes(2));
+    expect(showNotification).toHaveBeenCalledWith('Group Sub removed from Staff.', 'success');
+  });
+
+  it('shows the server error when removing a nested group fails', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.removeMemberGroup).mockResolvedValue({
+      success: false,
+      error: 'Group is not a member of this group',
+    });
+    renderPage();
+
+    await user.click(await screen.findByRole('button', { name: 'Remove Sub' }));
+    await user.click(screen.getByRole('button', { name: 'Confirm removing Sub' }));
+
+    await waitFor(() =>
+      expect(showNotification).toHaveBeenCalledWith('Group is not a member of this group', 'error')
+    );
+    expect(api.getGroup).toHaveBeenCalledTimes(1);
+  });
+
+  it('confirms one row at a time, so a pending confirmation never spans two members', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole('button', { name: 'Remove Sub' }));
+
+    expect(screen.getByRole('button', { name: 'Confirm removing Sub' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Confirm removing Ann Lee' })).not.toBeInTheDocument();
   });
 
   it('requires confirmation before removing, and cancel makes no request', async () => {
@@ -201,5 +247,107 @@ describe('GroupPage member management', () => {
     expect(api.getGroup).toHaveBeenCalledTimes(1);
     // The table is still there, untouched.
     expect(within(screen.getByRole('table')).getByText('Ann Lee')).toBeInTheDocument();
+  });
+
+  describe('adding a group', () => {
+    const groups = [
+      { dn: 'CN=Contractors,OU=Groups,DC=example,DC=com', cn: 'Contractors', sAMAccountName: 'Contractors', description: 'External staff' },
+      { dn: 'CN=Sub,OU=Groups,DC=example,DC=com', cn: 'Sub', sAMAccountName: 'Sub' },
+      { dn: 'CN=Staff,OU=Groups,DC=example,DC=com', cn: 'Staff', sAMAccountName: 'Staff' },
+    ];
+
+    async function openGroupSearch(user: ReturnType<typeof userEvent.setup>, text: string) {
+      await user.click(await screen.findByRole('button', { name: 'Search groups' }));
+      await user.type(screen.getByLabelText('Add a group'), text);
+    }
+
+    it('starts in user mode and searches groups, not users, after switching', async () => {
+      const user = userEvent.setup();
+      vi.mocked(api.searchGroups).mockResolvedValue({ success: true, count: 1, groups: [groups[0]] });
+      renderPage();
+
+      const toggle = await screen.findByRole('button', { name: 'Search groups' });
+      expect(toggle).toHaveAttribute('aria-pressed', 'false');
+      expect(toggle).toHaveTextContent('Users');
+      expect(screen.getByPlaceholderText('Add a member by name or email...')).toBeInTheDocument();
+
+      await openGroupSearch(user, 'con');
+      await screen.findByRole('button', { name: /^Contractors/ }, { timeout: 2000 });
+
+      expect(api.searchGroups).toHaveBeenCalledWith('con');
+      expect(api.searchUsers).not.toHaveBeenCalled();
+    });
+
+    it('toggles back and forth, changing the label and the search box text', async () => {
+      const user = userEvent.setup();
+      renderPage();
+
+      const toggle = await screen.findByRole('button', { name: 'Search groups' });
+      await user.click(toggle);
+
+      expect(toggle).toHaveAttribute('aria-pressed', 'true');
+      expect(toggle).toHaveTextContent('Groups');
+      expect(screen.getByPlaceholderText('Add a group by name...')).toBeInTheDocument();
+      expect(screen.getByLabelText('Add a group')).toBeInTheDocument();
+
+      await user.click(toggle);
+
+      expect(toggle).toHaveAttribute('aria-pressed', 'false');
+      expect(screen.getByPlaceholderText('Add a member by name or email...')).toBeInTheDocument();
+    });
+
+    it('nests the chosen group and reloads the list', async () => {
+      const user = userEvent.setup();
+      vi.mocked(api.searchGroups).mockResolvedValue({ success: true, count: 1, groups: [groups[0]] });
+      vi.mocked(api.addMemberGroup).mockResolvedValue({ success: true });
+      renderPage();
+
+      await openGroupSearch(user, 'con');
+      await user.click(await screen.findByRole('button', { name: /^Contractors/ }, { timeout: 2000 }));
+
+      await waitFor(() => expect(api.addMemberGroup).toHaveBeenCalledWith('Staff', 'Contractors'));
+      expect(api.addGroupMember).not.toHaveBeenCalled();
+      await waitFor(() => expect(api.getGroup).toHaveBeenCalledTimes(2));
+      expect(showNotification).toHaveBeenCalledWith('Group Contractors added to Staff.', 'success');
+    });
+
+    it('does not offer the group itself or a group that is already a member', async () => {
+      const user = userEvent.setup();
+      vi.mocked(api.searchGroups).mockResolvedValue({ success: true, count: 3, groups });
+      renderPage();
+
+      await openGroupSearch(user, 'st');
+      await screen.findByRole('button', { name: /^Contractors/ }, { timeout: 2000 });
+
+      expect(screen.getByRole('button', { name: /^Contractors/ })).toBeEnabled();
+      expect(screen.getByRole('button', { name: /^Sub/ })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /^Staff/ })).toBeDisabled();
+    });
+
+    it('shows the server error when nesting fails', async () => {
+      const user = userEvent.setup();
+      vi.mocked(api.searchGroups).mockResolvedValue({ success: true, count: 1, groups: [groups[0]] });
+      vi.mocked(api.addMemberGroup).mockResolvedValue({
+        success: false,
+        error: 'Group is already a member of this group',
+      });
+      renderPage();
+
+      await openGroupSearch(user, 'con');
+      await user.click(await screen.findByRole('button', { name: /^Contractors/ }, { timeout: 2000 }));
+
+      await waitFor(() =>
+        expect(showNotification).toHaveBeenCalledWith('Group is already a member of this group', 'error')
+      );
+      expect(api.getGroup).toHaveBeenCalledTimes(1);
+    });
+
+    it('is not offered without the capability', async () => {
+      auth = { ...auth, canManageGroupMembers: false };
+      renderPage();
+
+      await screen.findByText('Members (2)');
+      expect(screen.queryByRole('button', { name: 'Search groups' })).not.toBeInTheDocument();
+    });
   });
 });
