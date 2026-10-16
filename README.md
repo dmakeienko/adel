@@ -419,6 +419,10 @@ curl -k -X POST https://localhost:8080/api/v1/groups/remove-member \
 
 #### Add / Remove a Group Member (Groups tab)
 
+The add call takes exactly one of `username` (a user) or `memberGroup` (a group to nest
+inside this one, by CN or `sAMAccountName`); a body with both or neither is a `400`. A
+group cannot be added to itself.
+
 These back the member management on the Groups tab. Unlike `add-member` and
 `remove-member` above, which the user profile uses and which rely on Active Directory
 permissions alone, they are gated by `AD_GROUP_MANAGEMENT_ALLOWED_GROUPS` and return `403`
@@ -430,9 +434,23 @@ curl -k -X POST https://localhost:8080/api/v1/groups/Developers/members \
   -H "X-Session-ID: your-session-id" \
   -d '{"username":"johndoe"}'
 
+# nest the Contractors group inside Developers
+curl -k -X POST https://localhost:8080/api/v1/groups/Developers/members \
+  -H "Content-Type: application/json" \
+  -H "X-Session-ID: your-session-id" \
+  -d '{"memberGroup":"Contractors"}'
+
 curl -k -X DELETE https://localhost:8080/api/v1/groups/Developers/members/johndoe \
   -H "X-Session-ID: your-session-id"
+
+# take the nested Contractors group back out of Developers
+curl -k -X DELETE https://localhost:8080/api/v1/groups/Developers/member-groups/Contractors \
+  -H "X-Session-ID: your-session-id"
 ```
+
+Nested groups are removed through their own `member-groups` route so that a group and a
+user sharing a name can never be confused. Prefer the group's `sAMAccountName`, which is
+unique in the domain, over its CN, which can repeat across OUs.
 
 #### Inspect a Group
 
@@ -649,9 +667,11 @@ AD_GROUP_MANAGEMENT_ALLOWED_GROUPS=Helpdesk;CN=Directory Admins,OU=Groups,DC=exa
 Matching works as for the other allow-lists (case-insensitive CN or full DN, nested
 membership resolved at login), and as with password reset an empty list denies everyone.
 The two lists are independent: being allowed to reset passwords does not grant group
-management, or the reverse. An allowed caller sees an **Add a member** search box and a
-**Remove** button on each user row of a group's page; removal asks for confirmation.
-Nested member groups have no remove button — manage them from their own page. The
+management, or the reverse. An allowed caller sees an add box on a group's page with a
+small **Users** / **Groups** toggle button: search users to add them, or search groups to nest one
+inside the current group. Every member row, user or nested group, gets a **Remove**
+button; removal asks for confirmation. A group cannot be added to itself or twice, but
+longer membership cycles are not detected by the app. The
 capability is reported as `canManageGroupMembers` in `GET /api/v1/session`.
 
 Only membership of the allow-list grants this. Lead and PM roles never do: a [lead](#lead-scoping)

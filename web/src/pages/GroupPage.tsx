@@ -36,7 +36,7 @@ export function GroupPage() {
   const [truncated, setTruncated] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoadingGroup, setIsLoadingGroup] = useState(true);
-  // The member whose removal is awaiting confirmation, and the one being removed.
+  // The member (by DN) whose removal is awaiting confirmation, and the one being removed.
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
 
@@ -87,18 +87,24 @@ export function GroupPage() {
   }, [groupName]);
 
   const handleRemove = useCallback(
-    async (username: string) => {
+    async (member: GroupMember, identifier: string) => {
       if (!group) return;
-      setRemoving(username);
-      const result = await api.removeGroupMember(group.cn, username);
+      setRemoving(member.dn);
+      const result = member.isGroup
+        ? await api.removeMemberGroup(group.cn, identifier)
+        : await api.removeGroupMember(group.cn, identifier);
       setRemoving(null);
       setConfirmRemove(null);
 
       if (result.success) {
-        showNotification(`${username} removed from ${group.cn}.`, 'success');
+        const noun = member.isGroup ? 'Group ' : '';
+        showNotification(`${noun}${identifier} removed from ${group.cn}.`, 'success');
         await loadGroup(true);
       } else {
-        showNotification(result.error || result.message || 'Failed to remove member.', 'error');
+        showNotification(
+          result.error || result.message || `Failed to remove ${member.isGroup ? 'group' : 'member'}.`,
+          'error'
+        );
       }
     },
     [group, loadGroup, showNotification]
@@ -186,29 +192,32 @@ export function GroupPage() {
               header: () => <div className="text-right">Actions</div>,
               cell: ({ row }) => {
                 const member = row.original;
-                const username = member.sAMAccountName;
-                // Nested groups are structure, managed from their own page.
-                if (member.isGroup || !username) return null;
+                // A nested group is addressed by sAMAccountName, falling back to its CN;
+                // a user has no usable fallback, so one without a username has no action.
+                const identifier = member.isGroup
+                  ? member.sAMAccountName || member.cn
+                  : member.sAMAccountName;
+                if (!identifier) return null;
 
-                const label = member.displayName || member.cn || username;
-                if (confirmRemove === username) {
+                const label = member.displayName || member.cn || identifier;
+                if (confirmRemove === member.dn) {
                   return (
                     <div className="flex justify-end gap-2">
                       <Button
                         type="button"
                         size="sm"
                         variant="destructive"
-                        disabled={removing === username}
+                        disabled={removing === member.dn}
                         aria-label={`Confirm removing ${label}`}
-                        onClick={() => handleRemove(username)}
+                        onClick={() => handleRemove(member, identifier)}
                       >
-                        {removing === username ? 'Removing...' : 'Confirm'}
+                        {removing === member.dn ? 'Removing...' : 'Confirm'}
                       </Button>
                       <Button
                         type="button"
                         size="sm"
                         variant="outline"
-                        disabled={removing === username}
+                        disabled={removing === member.dn}
                         onClick={() => setConfirmRemove(null)}
                       >
                         Cancel
@@ -224,7 +233,7 @@ export function GroupPage() {
                       variant="outline"
                       disabled={removing !== null}
                       aria-label={`Remove ${label}`}
-                      onClick={() => setConfirmRemove(username)}
+                      onClick={() => setConfirmRemove(member.dn)}
                     >
                       Remove
                     </Button>
@@ -337,10 +346,8 @@ export function GroupPage() {
                   <CardTitle className="text-lg">Members ({members.length})</CardTitle>
                   {canManageGroupMembers && (
                     <GroupMemberAdd
-                      groupName={group.cn}
-                      memberUsernames={members
-                        .map((m) => m.sAMAccountName)
-                        .filter((name): name is string => !!name)}
+                      group={group}
+                      members={members}
                       onAdded={() => loadGroup(true)}
                     />
                   )}

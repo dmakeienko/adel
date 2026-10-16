@@ -1094,7 +1094,7 @@ func (h *Handler) AddUserToGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.changeGroupMembership(w, sess, membershipAdd, req.Username, userDN, req.GroupName, groupDN)
+	h.changeGroupMembership(w, sess, membershipAdd, membershipMember{name: req.Username, dn: userDN}, req.GroupName, groupDN)
 }
 
 // RemoveUserFromGroup removes a user from a group
@@ -1143,7 +1143,7 @@ func (h *Handler) RemoveUserFromGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.changeGroupMembership(w, sess, membershipRemove, req.Username, userDN, req.GroupName, groupDN)
+	h.changeGroupMembership(w, sess, membershipRemove, membershipMember{name: req.Username, dn: userDN}, req.GroupName, groupDN)
 }
 
 // membershipOp is the direction of a group membership change.
@@ -1154,45 +1154,71 @@ const (
 	membershipRemove
 )
 
-// changeGroupMembership applies one add or remove of a user to a group and writes the
+// membershipMember is the entry added to or removed from a group's "member" attribute:
+// either a user or a nested group.
+type membershipMember struct {
+	isGroup bool
+	name    string
+	dn      string
+}
+
+// label is the capitalised noun used in responses ("User" or "Group").
+func (m membershipMember) label() string {
+	if m.isGroup {
+		return "Group"
+	}
+	return "User"
+}
+
+// logAttrs are the structured-log fields identifying the member. Users keep the
+// "username"/"user_dn" keys the membership endpoints have always logged; a nested group
+// is logged under its own keys so it is never mistaken for a user.
+func (m membershipMember) logAttrs() []any {
+	if m.isGroup {
+		return []any{"member_group", m.name, "member_group_dn", m.dn}
+	}
+	return []any{logKeyUsername, m.name, "user_dn", m.dn}
+}
+
+// changeGroupMembership applies one add or remove of a member to a group and writes the
 // response. The caller has already resolved both DNs, so each entry point decides for
 // itself how the group is looked up and who may reach this point.
 func (h *Handler) changeGroupMembership(
 	w http.ResponseWriter,
 	sess *session.Session,
 	op membershipOp,
-	username, userDN, groupName, groupDN string,
+	member membershipMember,
+	groupName, groupDN string,
 ) {
+	subject := strings.ToLower(member.label())
 	modifyReq := ldap.NewModifyRequest(groupDN, nil)
-	operation, attempting, failed, succeeded := "AddUserToGroup",
-		"Attempting to add user to group",
-		"Failed to add user to group",
-		"Successfully added user to group"
+	operation, attempting, failed, succeeded := "AddMemberToGroup",
+		"Attempting to add "+subject+" to group",
+		"Failed to add "+subject+" to group",
+		"Successfully added "+subject+" to group"
 	if op == membershipAdd {
-		modifyReq.Add("member", []string{userDN})
+		modifyReq.Add("member", []string{member.dn})
 	} else {
-		modifyReq.Delete("member", []string{userDN})
-		operation, attempting, failed, succeeded = "RemoveUserFromGroup",
-			"Attempting to remove user from group",
-			"Failed to remove user from group",
-			"Successfully removed user from group"
+		modifyReq.Delete("member", []string{member.dn})
+		operation, attempting, failed, succeeded = "RemoveMemberFromGroup",
+			"Attempting to remove "+subject+" from group",
+			"Failed to remove "+subject+" from group",
+			"Successfully removed "+subject+" from group"
 	}
 
-	slog.Info(attempting, //nolint:gosec // G706: structured logging with key-value pairs, not string interpolation
-		"actor", sess.Username,
-		logKeyUsername, username,
-		"user_dn", userDN,
-		logKeyGroup, groupName,
-		"group_dn", groupDN,
-	)
+	attemptAttrs := append([]any{"actor", sess.Username}, member.logAttrs()...)
+	attemptAttrs = append(attemptAttrs, logKeyGroup, groupName, "group_dn", groupDN)
+	slog.Info(attempting, attemptAttrs...) //nolint:gosec // G706: structured logging with key-value pairs, not string interpolation
 
 	if err := sess.Conn.Modify(modifyReq); err != nil {
-		logLDAPError(operation, err, map[string]string{
-			logKeyUsername: username,
-			logKeyUserDN:   userDN,
-			logKeyGroup:    groupName,
-			"groupDN":      groupDN,
-		})
+		errFields := map[string]string{
+			"member":    member.name,
+			"memberDN":  member.dn,
+			"type":      subject,
+			logKeyGroup: groupName,
+			"groupDN":   groupDN,
+		}
+		logLDAPError(operation, err, errFields)
 
 		// Adding an existing member, or removing a non-member, is a state conflict.
 		if op == membershipAdd &&
@@ -1200,7 +1226,7 @@ func (h *Handler) changeGroupMembership(
 				strings.Contains(err.Error(), "LDAP Result Code 68")) {
 			writeJSON(w, http.StatusConflict, models.APIResponse{
 				Success: false,
-				Error:   "User is already a member of this group",
+				Error:   member.label() + " is already a member of this group",
 			})
 			return
 		}
@@ -1209,7 +1235,7 @@ func (h *Handler) changeGroupMembership(
 				strings.Contains(err.Error(), "LDAP Result Code 16")) {
 			writeJSON(w, http.StatusNotFound, models.APIResponse{
 				Success: false,
-				Error:   "User is not a member of this group",
+				Error:   member.label() + " is not a member of this group",
 			})
 			return
 		}
@@ -1230,15 +1256,13 @@ func (h *Handler) changeGroupMembership(
 		return
 	}
 
-	slog.Info(succeeded, //nolint:gosec // G706: structured logging with key-value pairs, not string interpolation
-		"actor", sess.Username,
-		logKeyUsername, username,
-		logKeyGroup, groupName,
-	)
+	successAttrs := append([]any{"actor", sess.Username}, member.logAttrs()...)
+	successAttrs = append(successAttrs, logKeyGroup, groupName)
+	slog.Info(succeeded, successAttrs...) //nolint:gosec // G706: structured logging with key-value pairs, not string interpolation
 
-	message := fmt.Sprintf("User %s added to group %s successfully", username, groupName)
+	message := fmt.Sprintf("%s %s added to group %s successfully", member.label(), member.name, groupName)
 	if op == membershipRemove {
-		message = fmt.Sprintf("User %s removed from group %s successfully", username, groupName)
+		message = fmt.Sprintf("%s %s removed from group %s successfully", member.label(), member.name, groupName)
 	}
 	writeJSON(w, http.StatusOK, models.APIResponse{
 		Success: true,
@@ -1302,9 +1326,10 @@ func (h *Handler) resolveManageableGroup(w http.ResponseWriter, r *http.Request,
 	return group
 }
 
-// AddGroupMember adds a user to the group named in the URL. It backs the Groups tab and
-// is gated by AD_GROUP_MANAGEMENT_ALLOWED_GROUPS. The group comes only from the URL, so
-// the body cannot name a different group than the one that was authorized.
+// AddGroupMember adds a user, or a nested group, to the group named in the URL. It backs
+// the Groups tab and is gated by AD_GROUP_MANAGEMENT_ALLOWED_GROUPS. The target group
+// comes only from the URL, so the body cannot name a different group than the one that
+// was authorized. The body carries exactly one of "username" and "memberGroup".
 func (h *Handler) AddGroupMember(w http.ResponseWriter, r *http.Request) {
 	sess := middleware.GetSessionFromContext(r.Context())
 	if sess == nil {
@@ -1328,16 +1353,22 @@ func (h *Handler) AddGroupMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	username := strings.TrimSpace(req.Username)
-	if username == "" {
+	memberGroup := strings.TrimSpace(req.MemberGroup)
+	if (username == "") == (memberGroup == "") {
 		writeJSON(w, http.StatusBadRequest, models.APIResponse{
 			Success: false,
-			Error:   "Username is required",
+			Error:   "Provide either username or memberGroup",
 		})
 		return
 	}
 
 	group := h.resolveManageableGroup(w, r, sess)
 	if group == nil {
+		return
+	}
+
+	if memberGroup != "" {
+		h.addNestedGroup(w, sess, group, memberGroup)
 		return
 	}
 
@@ -1350,7 +1381,78 @@ func (h *Handler) AddGroupMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.changeGroupMembership(w, sess, membershipAdd, username, userDN, group.CN, group.DN)
+	h.changeGroupMembership(w, sess, membershipAdd, membershipMember{name: username, dn: userDN}, group.CN, group.DN)
+}
+
+// addNestedGroup makes the named group a member of parent. The child is resolved with
+// findGroup, so excluded groups report "not found" just as they do everywhere else.
+//
+// A group cannot contain itself. Longer cycles are not detected here: Active Directory
+// tolerates them, and the nested lookups in this app are bounded, so they cost nothing
+// worse than a confusing membership view.
+func (h *Handler) addNestedGroup(w http.ResponseWriter, sess *session.Session, parent *models.Group, childName string) {
+	child, err := h.findGroup(sess.Conn, childName)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, models.APIResponse{
+			Success: false,
+			Error:   "Member group not found",
+		})
+		return
+	}
+
+	if strings.EqualFold(child.DN, parent.DN) {
+		writeJSON(w, http.StatusBadRequest, models.APIResponse{
+			Success: false,
+			Error:   "A group cannot be added to itself",
+		})
+		return
+	}
+
+	h.changeGroupMembership(w, sess, membershipAdd, membershipMember{isGroup: true, name: child.CN, dn: child.DN}, parent.CN, parent.DN)
+}
+
+// RemoveMemberGroup removes a nested group from the group named in the URL. It is the
+// counterpart of the "memberGroup" form of AddGroupMember and carries the same gate. The
+// nested group is addressed by its own path segment, so a group and a user that happen to
+// share a name are never confused.
+func (h *Handler) RemoveMemberGroup(w http.ResponseWriter, r *http.Request) {
+	sess := middleware.GetSessionFromContext(r.Context())
+	if sess == nil {
+		writeJSON(w, http.StatusUnauthorized, models.APIResponse{
+			Success: false,
+			Error:   errMsgSessionNotFound,
+		})
+		return
+	}
+
+	if !h.authorizeGroupManagement(w, sess) {
+		return
+	}
+
+	memberGroup := strings.TrimSpace(mux.Vars(r)["memberGroup"])
+	if memberGroup == "" {
+		writeJSON(w, http.StatusBadRequest, models.APIResponse{
+			Success: false,
+			Error:   "Member group is required",
+		})
+		return
+	}
+
+	parent := h.resolveManageableGroup(w, r, sess)
+	if parent == nil {
+		return
+	}
+
+	child, err := h.findGroup(sess.Conn, memberGroup)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, models.APIResponse{
+			Success: false,
+			Error:   "Member group not found",
+		})
+		return
+	}
+
+	h.changeGroupMembership(w, sess, membershipRemove, membershipMember{isGroup: true, name: child.CN, dn: child.DN}, parent.CN, parent.DN)
 }
 
 // RemoveGroupMember removes a user from the group named in the URL. It is the
@@ -1392,7 +1494,7 @@ func (h *Handler) RemoveGroupMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.changeGroupMembership(w, sess, membershipRemove, username, userDN, group.CN, group.DN)
+	h.changeGroupMembership(w, sess, membershipRemove, membershipMember{name: username, dn: userDN}, group.CN, group.DN)
 }
 
 // GetCurrentUser returns information about the currently logged in user

@@ -204,6 +204,19 @@ describe('ApiService', () => {
       });
     });
 
+    it('nests a group by sending memberGroup to the same endpoint', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const post = (api as any).client.post;
+      post.mockResolvedValueOnce({ data: { success: true } });
+
+      const result = await api.addMemberGroup('Domain Admins', 'Sub Group');
+
+      expect(result.success).toBe(true);
+      expect(post).toHaveBeenCalledWith('/api/v1/groups/Domain%20Admins/members', {
+        memberGroup: 'Sub Group',
+      });
+    });
+
     it('removes a member with a DELETE, encoding both path segments', async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const del = (api as any).client.delete;
@@ -213,6 +226,17 @@ describe('ApiService', () => {
 
       expect(result.success).toBe(true);
       expect(del).toHaveBeenCalledWith('/api/v1/groups/Domain%20Admins/members/a%2Fb');
+    });
+
+    it('removes a nested group through its own route, encoding both segments', async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const del = (api as any).client.delete;
+      del.mockResolvedValueOnce({ data: { success: true } });
+
+      const result = await api.removeMemberGroup('Domain Admins', 'Sub Group');
+
+      expect(result.success).toBe(true);
+      expect(del).toHaveBeenCalledWith('/api/v1/groups/Domain%20Admins/member-groups/Sub%20Group');
     });
 
     it('returns the server error as data instead of throwing', async () => {

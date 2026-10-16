@@ -31,6 +31,7 @@ const (
 	testMemberCN      = "Ann Lee"
 	testShortDN       = "CN=A,DC=x"
 	testBlank         = "   "
+	testGroupName     = "Engineering"
 	varKeyGroupName   = "groupName"
 	attrNameObjectCls = "objectClass"
 	classUser         = "user"
@@ -658,11 +659,44 @@ func TestSearchDeniedForPlainMember(t *testing.T) {
 // groupManagementRequest builds a Groups-tab membership request for the given session.
 func groupManagementRequest(method, body string, sess *session.Session) *http.Request {
 	req := httptest.NewRequest(method, "/api/v1/groups/Engineering/members", strings.NewReader(body))
-	req = mux.SetURLVars(req, map[string]string{varKeyGroupName: "Engineering", "username": "alice"})
+	req = mux.SetURLVars(req, map[string]string{varKeyGroupName: testGroupName, "username": "alice"})
 	if sess == nil {
 		return req
 	}
 	return req.WithContext(context.WithValue(req.Context(), middleware.SessionContextKey, sess))
+}
+
+// memberGroupRequest builds a Groups-tab request to remove a nested group.
+func memberGroupRequest(memberGroup string, sess *session.Session) *http.Request {
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/groups/Engineering/member-groups/x", nil)
+	req = mux.SetURLVars(req, map[string]string{varKeyGroupName: testGroupName, "memberGroup": memberGroup})
+	if sess == nil {
+		return req
+	}
+	return req.WithContext(context.WithValue(req.Context(), middleware.SessionContextKey, sess))
+}
+
+func TestRemoveMemberGroupRequiresSessionAndInput(t *testing.T) {
+	h := NewHandler(&config.Config{AD: config.ADConfig{
+		GroupManagementAllowedGroups: []string{"Employees"},
+	}}, nil)
+
+	t.Run("requires a session", func(t *testing.T) {
+		rr := httptest.NewRecorder()
+		h.RemoveMemberGroup(rr, memberGroupRequest("Sub", nil))
+		if rr.Code != http.StatusUnauthorized {
+			t.Errorf("status = %d, want %d", rr.Code, http.StatusUnauthorized)
+		}
+	})
+
+	t.Run("rejects a blank member group", func(t *testing.T) {
+		sess := &session.Session{Username: testUsername, MemberOf: []string{testEmployeesDN}}
+		rr := httptest.NewRecorder()
+		h.RemoveMemberGroup(rr, memberGroupRequest(testBlank, sess))
+		if rr.Code != http.StatusBadRequest {
+			t.Errorf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+		}
+	})
 }
 
 func TestGroupMemberManagementRequiresSession(t *testing.T) {
@@ -744,7 +778,49 @@ func TestGroupMemberManagementIsGated(t *testing.T) {
 			if rr.Code != tt.want {
 				t.Errorf("remove status = %d, want %d", rr.Code, tt.want)
 			}
+
+			rr = httptest.NewRecorder()
+			h.RemoveMemberGroup(rr, memberGroupRequest("Sub", sess))
+			if rr.Code != tt.want {
+				t.Errorf("remove group status = %d, want %d", rr.Code, tt.want)
+			}
 		})
+	}
+}
+
+// TestAddingAGroupUsesTheSameGate confirms nesting a group is not a side door: a caller
+// outside the allow-list is refused whether the body names a user or a group.
+func TestAddingAGroupUsesTheSameGate(t *testing.T) {
+	sess := &session.Session{Username: testUsername, MemberOf: []string{testEmployeesDN}}
+
+	for name, ad := range map[string]config.ADConfig{
+		"empty allow-list": {},
+		"outside the list": {GroupManagementAllowedGroups: []string{"Service Desk"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := NewHandler(&config.Config{AD: ad}, nil)
+			rr := httptest.NewRecorder()
+			h.AddGroupMember(rr, groupManagementRequest(http.MethodPost, `{"memberGroup":"Sub"}`, sess))
+			if rr.Code != http.StatusForbidden {
+				t.Errorf("status = %d, want %d", rr.Code, http.StatusForbidden)
+			}
+		})
+	}
+}
+
+func TestMembershipMemberDescribesUsersAndGroups(t *testing.T) {
+	user := membershipMember{name: "alice", dn: "CN=Alice,DC=x"}
+	group := membershipMember{isGroup: true, name: "Sub", dn: "CN=Sub,DC=x"}
+
+	if user.label() != "User" || group.label() != "Group" {
+		t.Errorf("labels = %q, %q", user.label(), group.label())
+	}
+	// A nested group must never be logged under the user keys.
+	if got := user.logAttrs()[0]; got != logKeyUsername {
+		t.Errorf("user first log key = %v, want %q", got, logKeyUsername)
+	}
+	if got := group.logAttrs()[0]; got != "member_group" {
+		t.Errorf("group first log key = %v, want member_group", got)
 	}
 }
 
@@ -772,9 +848,37 @@ func TestGroupMemberManagementValidatesInput(t *testing.T) {
 		}
 	})
 
+	t.Run("add rejects a body naming neither a user nor a group", func(t *testing.T) {
+		rr := httptest.NewRecorder()
+		h.AddGroupMember(rr, groupManagementRequest(http.MethodPost, `{}`, sess))
+		if rr.Code != http.StatusBadRequest {
+			t.Errorf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+		}
+	})
+
+	t.Run("add rejects a blank member group", func(t *testing.T) {
+		rr := httptest.NewRecorder()
+		h.AddGroupMember(rr, groupManagementRequest(http.MethodPost, `{"memberGroup":"  "}`, sess))
+		if rr.Code != http.StatusBadRequest {
+			t.Errorf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+		}
+	})
+
+	// One request adds one thing; an ambiguous body is refused rather than half-applied.
+	t.Run("add rejects a body naming both a user and a group", func(t *testing.T) {
+		rr := httptest.NewRecorder()
+		h.AddGroupMember(rr, groupManagementRequest(http.MethodPost, `{"username":"alice","memberGroup":"Sub"}`, sess))
+		if rr.Code != http.StatusBadRequest {
+			t.Errorf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+		}
+		if !strings.Contains(rr.Body.String(), "either username or memberGroup") {
+			t.Errorf("body = %q, want the either/or explanation", rr.Body.String())
+		}
+	})
+
 	t.Run("remove rejects a blank username", func(t *testing.T) {
 		req := groupManagementRequest(http.MethodDelete, "", sess)
-		req = mux.SetURLVars(req, map[string]string{varKeyGroupName: "Engineering", "username": testBlank})
+		req = mux.SetURLVars(req, map[string]string{varKeyGroupName: testGroupName, "username": testBlank})
 		rr := httptest.NewRecorder()
 		h.RemoveGroupMember(rr, req)
 		if rr.Code != http.StatusBadRequest {
