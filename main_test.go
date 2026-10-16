@@ -26,7 +26,9 @@ func TestGroupRouteOrdering(t *testing.T) {
 		{http.MethodPost, "/api/v1/groups/resolve", ""},
 		{http.MethodPost, "/api/v1/groups/add-member", ""},
 		{http.MethodPost, "/api/v1/groups/remove-member", ""},
-		{http.MethodGet, "/api/v1/groups/Domain Admins", "Domain Admins"},
+		{http.MethodGet, "/api/v1/groups/Domain Admins", "Domain Admins"}, //nolint:goconst // test fixture value
+		{http.MethodPost, "/api/v1/groups/Domain Admins/members", "Domain Admins"},
+		{http.MethodDelete, "/api/v1/groups/Domain Admins/members/alice", "Domain Admins"},
 	}
 
 	for _, tt := range tests {

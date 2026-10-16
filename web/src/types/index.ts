@@ -127,6 +127,7 @@ export interface SessionInfo {
   expiresAt: string;
   canSearch: boolean;
   canResetPassword: boolean;
+  canManageGroupMembers: boolean;
   /**
    * Wildcard identifiers (e.g. "CN=engineering-*") of the groups this user leads.
    * Empty or absent for a user who is not a lead or PM.

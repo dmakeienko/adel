@@ -158,7 +158,7 @@ func TestChangeUserPasswordRequiresCurrentPassword(t *testing.T) {
 func TestResetUserPasswordAuthorizationAndValidation(t *testing.T) {
 	t.Run("rejects a caller outside allowed groups", func(t *testing.T) {
 		h := NewHandler(&config.Config{AD: config.ADConfig{
-			PasswordResetAllowedGroups: []string{"Service Desk"},
+			PasswordResetAllowedGroups: []string{"Service Desk"}, //nolint:goconst // test fixture value
 		}}, nil)
 		sess := &session.Session{Username: testUsername, MemberOf: []string{testEmployeesDN}}
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/users/target/reset-password", strings.NewReader(`{"newPassword":"Example1!"}`))
@@ -653,6 +653,134 @@ func TestSearchDeniedForPlainMember(t *testing.T) {
 	if rr.Code != http.StatusForbidden {
 		t.Errorf("status = %d, want %d", rr.Code, http.StatusForbidden)
 	}
+}
+
+// groupManagementRequest builds a Groups-tab membership request for the given session.
+func groupManagementRequest(method, body string, sess *session.Session) *http.Request {
+	req := httptest.NewRequest(method, "/api/v1/groups/Engineering/members", strings.NewReader(body))
+	req = mux.SetURLVars(req, map[string]string{varKeyGroupName: "Engineering", "username": "alice"})
+	if sess == nil {
+		return req
+	}
+	return req.WithContext(context.WithValue(req.Context(), middleware.SessionContextKey, sess))
+}
+
+func TestGroupMemberManagementRequiresSession(t *testing.T) {
+	h := NewHandler(&config.Config{AD: config.ADConfig{
+		GroupManagementAllowedGroups: []string{"Employees"},
+	}}, nil)
+
+	for name, call := range map[string]func(http.ResponseWriter, *http.Request){
+		"add":    h.AddGroupMember,
+		"remove": h.RemoveGroupMember,
+	} {
+		t.Run(name, func(t *testing.T) {
+			rr := httptest.NewRecorder()
+			call(rr, groupManagementRequest(http.MethodPost, `{"username":"alice"}`, nil))
+			if rr.Code != http.StatusUnauthorized {
+				t.Errorf("status = %d, want %d", rr.Code, http.StatusUnauthorized)
+			}
+		})
+	}
+}
+
+// TestGroupMemberManagementIsGated covers the env-var gate: with the allow-list unset
+// nobody may manage members, and with it set only its members may. The session has no
+// LDAP connection, so a rejection here proves the gate runs before any directory access.
+func TestGroupMemberManagementIsGated(t *testing.T) {
+	tests := []struct {
+		name string
+		ad   config.ADConfig
+		// memberOf is the caller's group membership.
+		memberOf []string
+		want     int
+	}{
+		{
+			name:     "empty allow-list denies everyone",
+			ad:       config.ADConfig{},
+			memberOf: []string{testEmployeesDN},
+			want:     http.StatusForbidden,
+		},
+		{
+			name:     "caller outside the allow-list is denied",
+			ad:       config.ADConfig{GroupManagementAllowedGroups: []string{"Service Desk"}},
+			memberOf: []string{testEmployeesDN},
+			want:     http.StatusForbidden,
+		},
+		{
+			name: "password-reset group does not grant management",
+			ad: config.ADConfig{
+				PasswordResetAllowedGroups: []string{"Employees"},
+			},
+			memberOf: []string{testEmployeesDN},
+			want:     http.StatusForbidden,
+		},
+		{
+			// Management does not widen browsing: someone who may not see groups cannot
+			// change them either, even when listed.
+			name: "allow-listed caller who may not browse groups is denied",
+			ad: config.ADConfig{
+				GroupManagementAllowedGroups: []string{"Employees"},
+				SearchAllowedGroups:          []string{"Directory Admins"},
+			},
+			memberOf: []string{testEmployeesDN},
+			want:     http.StatusForbidden,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := NewHandler(&config.Config{AD: tt.ad}, nil)
+			sess := &session.Session{Username: testUsername, MemberOf: tt.memberOf}
+
+			rr := httptest.NewRecorder()
+			h.AddGroupMember(rr, groupManagementRequest(http.MethodPost, `{"username":"alice"}`, sess))
+			if rr.Code != tt.want {
+				t.Errorf("add status = %d, want %d", rr.Code, tt.want)
+			}
+
+			rr = httptest.NewRecorder()
+			h.RemoveGroupMember(rr, groupManagementRequest(http.MethodDelete, "", sess))
+			if rr.Code != tt.want {
+				t.Errorf("remove status = %d, want %d", rr.Code, tt.want)
+			}
+		})
+	}
+}
+
+// TestGroupMemberManagementValidatesInput confirms an authorized caller is still held to
+// well-formed input, and that validation also runs before any directory access.
+func TestGroupMemberManagementValidatesInput(t *testing.T) {
+	h := NewHandler(&config.Config{AD: config.ADConfig{
+		GroupManagementAllowedGroups: []string{"Employees"},
+	}}, nil)
+	sess := &session.Session{Username: testUsername, MemberOf: []string{testEmployeesDN}}
+
+	t.Run("add rejects a malformed body", func(t *testing.T) {
+		rr := httptest.NewRecorder()
+		h.AddGroupMember(rr, groupManagementRequest(http.MethodPost, `not json`, sess))
+		if rr.Code != http.StatusBadRequest {
+			t.Errorf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+		}
+	})
+
+	t.Run("add rejects a blank username", func(t *testing.T) {
+		rr := httptest.NewRecorder()
+		h.AddGroupMember(rr, groupManagementRequest(http.MethodPost, `{"username":"   "}`, sess))
+		if rr.Code != http.StatusBadRequest {
+			t.Errorf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+		}
+	})
+
+	t.Run("remove rejects a blank username", func(t *testing.T) {
+		req := groupManagementRequest(http.MethodDelete, "", sess)
+		req = mux.SetURLVars(req, map[string]string{varKeyGroupName: "Engineering", "username": testBlank})
+		rr := httptest.NewRecorder()
+		h.RemoveGroupMember(rr, req)
+		if rr.Code != http.StatusBadRequest {
+			t.Errorf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+		}
+	})
 }
 
 func TestGroupMembershipRequiresSession(t *testing.T) {

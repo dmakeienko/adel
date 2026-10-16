@@ -111,6 +111,9 @@ config:
     # Semicolon-separated group CNs or DNs whose members may reset user passwords.
     # Empty disables password reset for every user.
     passwordResetAllowedGroups: ""
+    # Semicolon-separated group CNs or DNs whose members may add and remove group members
+    # from the Groups tab. Empty disables group member management for every user.
+    groupManagementAllowedGroups: ""
     # Lead/PM scoping. Comma-separated CN suffixes marking a group whose members lead it,
     # e.g. "-lead,-pm". Empty (the default) disables lead detection entirely.
     #
