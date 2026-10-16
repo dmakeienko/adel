@@ -3,7 +3,7 @@ module adel
 go 1.26.6
 
 require (
-	github.com/go-ldap/ldap/v3 v3.4.14
+	github.com/go-ldap/ldap/v3 v3.4.15
 	github.com/gorilla/mux v1.8.1
 	github.com/joho/godotenv v1.5.1
 )
