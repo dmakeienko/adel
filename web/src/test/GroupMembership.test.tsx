@@ -88,6 +88,39 @@ describe('GroupMembership nested toggle', () => {
     expect(screen.queryByText('All Staff')).not.toBeInTheDocument();
   });
 
+  // The nested lookup is the slow call. The switch and the direct rows must not wait on it.
+  it('shows the switch and direct rows before the nested lookup returns', async () => {
+    let finish: (value: Awaited<ReturnType<typeof api.resolveGroups>>) => void = () => {};
+    vi.mocked(api.resolveGroups).mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve;
+      })
+    );
+    renderWithRouter(<GroupMembership user={user} />);
+
+    // Both are there while the lookup is still pending.
+    expect(screen.getByRole('button', { name: 'Direct only' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'All' })).toBeInTheDocument();
+    expect(screen.getByText('Engineering')).toBeInTheDocument();
+
+    // Switching early says what is happening rather than showing nothing new.
+    fireEvent.click(screen.getByRole('button', { name: 'All' }));
+    expect(screen.getByText('Loading inherited groups...')).toBeInTheDocument();
+
+    finish({
+      success: true,
+      count: 2,
+      groups: [
+        { dn: DIRECT_DN, cn: 'Engineering', sAMAccountName: 'Engineering', description: 'Engineers' },
+        { dn: NESTED_DN, cn: 'All Staff', sAMAccountName: 'All Staff', description: 'Everyone', nested: true },
+      ],
+    });
+
+    expect(await screen.findByText('All Staff')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'All (2)' })).toBeInTheDocument();
+    expect(screen.queryByText('Loading inherited groups...')).not.toBeInTheDocument();
+  });
+
   it('resolves memberships from the user being viewed', async () => {
     renderWithRouter(<GroupMembership user={user} />);
 

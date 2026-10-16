@@ -44,6 +44,9 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
   // Direct-only by default: inherited groups are informational and can bulk out the
   // table considerably on users nested deep in the hierarchy.
   const [showNested, setShowNested] = useState(false);
+  // The nested lookup is the slow call, and the direct rows do not wait for it. Tracked so
+  // the Direct only / All switch can render straight away while inherited groups load.
+  const [isResolving, setIsResolving] = useState(true);
   const { showNotification } = useNotification();
   const { canSearch } = useAuth();
   const searchRef = useRef<HTMLDivElement>(null);
@@ -65,9 +68,11 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
     const memberOf = user.memberOf;
     if (!memberOf || memberOf.length === 0) {
       setAllGroups([]);
+      setIsResolving(false);
       return;
     }
 
+    setIsResolving(true);
     try {
       // nested=true so groups inherited through another group come back too; the
       // user object's memberOf only lists direct memberships.
@@ -77,6 +82,8 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
       }
     } catch {
       console.error('Failed to resolve group details');
+    } finally {
+      setIsResolving(false);
     }
   }, [user.memberOf]);
 
@@ -359,14 +366,17 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-lg">Group Membership</CardTitle>
 
-          {/* Scope toggle. Rendered only when there is something to reveal, so users
-              with no inherited memberships are not offered an inert control. */}
-          {nestedCount > 0 && (
+          {/* Scope toggle. Always rendered, so it appears with the card instead of waiting on
+              the nested lookup; the inherited groups fill in once that returns. */}
+          <div className="flex items-center gap-3">
+            {isResolving && showNested && (
+              <span className="text-xs text-muted-foreground">Loading inherited groups...</span>
+            )}
             <div className="inline-flex rounded-md border border-border p-0.5" role="group">
               <Button
                 type="button"
                 size="sm"
-                variant={showNested ? 'ghost' : 'secondary'}
+                variant={showNested ? 'ghost' : 'default'}
                 aria-pressed={!showNested}
                 className="h-7 px-3 text-xs"
                 onClick={() => setShowNested(false)}
@@ -376,15 +386,15 @@ export function GroupMembership({ user, onUpdate }: GroupMembershipProps) {
               <Button
                 type="button"
                 size="sm"
-                variant={showNested ? 'secondary' : 'ghost'}
+                variant={showNested ? 'default' : 'ghost'}
                 aria-pressed={showNested}
                 className="h-7 px-3 text-xs"
                 onClick={() => setShowNested(true)}
               >
-                All ({groups.length})
+                {isResolving ? 'All' : `All (${groups.length})`}
               </Button>
             </div>
-          )}
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
