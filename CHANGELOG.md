@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.8.1](https://github.com/dmakeienko/adel/compare/v1.8.0...v1.8.1) (2026-10-16)
+
+
+### Dependencies
+
+* **deps:** bump the github-actions group across 1 directory with 6 updates ([efc7c0b](https://github.com/dmakeienko/adel/commit/efc7c0bc92584c0f58c544cf556fe2b3740b9503))
+* **deps:** bump the github-actions group across 1 directory with 6 updates ([ba6c219](https://github.com/dmakeienko/adel/commit/ba6c219902e88136098e045f8b1335cec6d843ae))
+
 ## [1.8.0](https://github.com/dmakeienko/adel/compare/v1.7.0...v1.8.0) (2026-10-16)
 
 
