@@ -2,6 +2,9 @@ package session
 
 import (
 	"testing"
+	"time"
+
+	"adel/config"
 )
 
 func TestContainsAt(t *testing.T) {
@@ -131,5 +134,26 @@ func TestGenerateSessionID(t *testing.T) {
 
 	if id1 == id2 {
 		t.Error("two generated session IDs should not be equal")
+	}
+}
+
+func TestNewManagerSessionTTL(t *testing.T) {
+	tests := []struct {
+		name string
+		ttl  time.Duration
+		want time.Duration
+	}{
+		{"configured value is used", 90 * time.Minute, 90 * time.Minute},
+		{"zero falls back to default", 0, config.DefaultSessionTTL},
+		{"negative falls back to default", -time.Minute, config.DefaultSessionTTL},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := NewManager(&config.Config{Session: config.SessionConfig{TTL: tt.ttl}})
+			defer m.Stop()
+			if m.sessionTTL != tt.want {
+				t.Errorf("sessionTTL = %v, want %v", m.sessionTTL, tt.want)
+			}
+		})
 	}
 }

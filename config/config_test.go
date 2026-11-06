@@ -183,7 +183,8 @@ func TestTrimSpace(t *testing.T) {
 func TestValidate(t *testing.T) {
 	t.Run("valid config", func(t *testing.T) {
 		cfg := &Config{
-			AD: ADConfig{Server: "ad.example.com", BaseDN: "dc=example,dc=com"}, //nolint:goconst // test fixture data
+			AD:      ADConfig{Server: "ad.example.com", BaseDN: "dc=example,dc=com"}, //nolint:goconst // test fixture data
+			Session: SessionConfig{TTL: DefaultSessionTTL},
 		}
 		if err := cfg.Validate(); err != nil {
 			t.Errorf("Validate() error = %v, want nil", err)
@@ -795,5 +796,53 @@ func TestIsGroupInLeadScope(t *testing.T) {
 
 	if cfg.IsGroupInLeadScope([]string{dnEmployees}, "engineering") {
 		t.Error("a non-lead should have an empty scope matching nothing")
+	}
+}
+
+func TestLoadSessionTTLDefault(t *testing.T) {
+	os.Setenv("AD_SERVER", "test-ad.example.com")
+	os.Setenv("AD_BASE_DN", "dc=test,dc=com")
+	os.Unsetenv("SESSION_TTL_MINUTES")
+	defer os.Unsetenv("AD_SERVER")
+	defer os.Unsetenv("AD_BASE_DN")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Session.TTL != 30*time.Minute {
+		t.Errorf("Session.TTL = %v, want %v", cfg.Session.TTL, 30*time.Minute)
+	}
+}
+
+func TestLoadSessionTTLOverride(t *testing.T) {
+	os.Setenv("AD_SERVER", "test-ad.example.com")
+	os.Setenv("AD_BASE_DN", "dc=test,dc=com")
+	os.Setenv("SESSION_TTL_MINUTES", "90")
+	defer os.Unsetenv("AD_SERVER")
+	defer os.Unsetenv("AD_BASE_DN")
+	defer os.Unsetenv("SESSION_TTL_MINUTES")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Session.TTL != 90*time.Minute {
+		t.Errorf("Session.TTL = %v, want %v", cfg.Session.TTL, 90*time.Minute)
+	}
+}
+
+func TestLoadSessionTTLRejectsNonPositive(t *testing.T) {
+	for _, v := range []string{"0", "-5"} {
+		os.Setenv("AD_SERVER", "test-ad.example.com")
+		os.Setenv("AD_BASE_DN", "dc=test,dc=com")
+		os.Setenv("SESSION_TTL_MINUTES", v)
+		_, err := Load()
+		os.Unsetenv("AD_SERVER")
+		os.Unsetenv("AD_BASE_DN")
+		os.Unsetenv("SESSION_TTL_MINUTES")
+		if err == nil {
+			t.Errorf("Load() with SESSION_TTL_MINUTES=%s: expected error, got nil", v)
+		}
 	}
 }

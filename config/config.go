@@ -18,6 +18,7 @@ type Config struct {
 	CORS      CORSConfig
 	Logging   LoggingConfig
 	RateLimit RateLimitConfig
+	Session   SessionConfig
 }
 
 // ServerConfig holds server configuration
@@ -108,6 +109,16 @@ type RateLimitConfig struct {
 	PasswordResetWindow time.Duration
 }
 
+// DefaultSessionTTL is how long a session may sit idle before it expires.
+const DefaultSessionTTL = 30 * time.Minute
+
+// SessionConfig holds session lifetime configuration.
+type SessionConfig struct {
+	// TTL is the idle timeout: a session expires this long after its last
+	// authenticated request, and every request pushes the expiry out again.
+	TTL time.Duration
+}
+
 // Load loads configuration from environment variables
 func Load() (*Config, error) {
 	cfg := &Config{
@@ -161,6 +172,9 @@ func Load() (*Config, error) {
 			PasswordResetRequests: getIntEnv("RATE_LIMIT_PASSWORD_RESET_REQUESTS", 10),
 			PasswordResetWindow:   getDurationEnv("RATE_LIMIT_PASSWORD_RESET_WINDOW", 60) * time.Second,
 		},
+		Session: SessionConfig{
+			TTL: time.Duration(getIntEnv("SESSION_TTL_MINUTES", int(DefaultSessionTTL/time.Minute))) * time.Minute,
+		},
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -177,6 +191,9 @@ func (c *Config) Validate() error {
 	}
 	if c.AD.BaseDN == "" {
 		return fmt.Errorf("AD_BASE_DN is required")
+	}
+	if c.Session.TTL <= 0 {
+		return fmt.Errorf("SESSION_TTL_MINUTES must be greater than 0")
 	}
 	return nil
 }
