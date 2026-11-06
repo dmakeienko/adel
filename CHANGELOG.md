@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.9.0](https://github.com/dmakeienko/adel/compare/v1.8.0...v1.9.0) (2026-11-06)
+
+
+### Features
+
+* configurable session timeout ([4b59560](https://github.com/dmakeienko/adel/commit/4b59560ae7bb04a0b91af65d479e5fbc3e7a28e2))
+* configurable session timeout ([d5dade0](https://github.com/dmakeienko/adel/commit/d5dade0bbca115689fd6f81c8cb2dbee998feb9a))
+
+
+### Dependencies
+
+* **deps:** bump follow-redirects ([e4bf768](https://github.com/dmakeienko/adel/commit/e4bf768ad1d0237f20697c0c8759ff3a6465f9f8))
+* **deps:** bump follow-redirects from 1.16.0 to 1.16.2 in /web in the npm_and_yarn group across 1 directory ([c3622aa](https://github.com/dmakeienko/adel/commit/c3622aaaada8cc6d65420040d62a6df0f84286f0))
+* **deps:** bump the github-actions group across 1 directory with 6 updates ([efc7c0b](https://github.com/dmakeienko/adel/commit/efc7c0bc92584c0f58c544cf556fe2b3740b9503))
+* **deps:** bump the github-actions group across 1 directory with 6 updates ([ba6c219](https://github.com/dmakeienko/adel/commit/ba6c219902e88136098e045f8b1335cec6d843ae))
+* **deps:** bump the github-actions group with 2 updates ([14702ef](https://github.com/dmakeienko/adel/commit/14702efe32667587870800f7bb199c594ad0a0b3))
+* **deps:** bump the github-actions group with 2 updates ([a2803e8](https://github.com/dmakeienko/adel/commit/a2803e880105c34358c1498f9f54b8f1ec44ff92))
+* **deps:** bump the github-actions group with 5 updates ([929796f](https://github.com/dmakeienko/adel/commit/929796f74f7003a97ecb0cba5d93eb5e6bd6af21))
+* **deps:** bump the github-actions group with 5 updates ([dd7848e](https://github.com/dmakeienko/adel/commit/dd7848efa62394e4202bcaade42ba5d5df3ddd6b))
+* upgrade Go to 1.27.3 ([2cc42f4](https://github.com/dmakeienko/adel/commit/2cc42f476ff14447ba83e31163231f671076b9b4))
+* upgrade Go to 1.27.3 ([a3fb68e](https://github.com/dmakeienko/adel/commit/a3fb68ed921f62f13c0d6b8d83d2b12d1d9ae3a1))
+
 ## [1.8.0](https://github.com/dmakeienko/adel/compare/v1.7.0...v1.8.0) (2026-10-16)
 
 
