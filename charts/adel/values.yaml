@@ -136,6 +136,11 @@ config:
     # Window in seconds over which the allowance is replenished.
     passwordResetWindow: "60"
 
+  session:
+    # Idle timeout in minutes. A session expires this long after its last request;
+    # each request extends it. Sessions are in memory, so a pod restart signs users out.
+    ttlMinutes: "30"
+
   cors:
     allowedOrigins: "*"
     allowedMethods: "GET,POST,PUT,DELETE,OPTIONS,PATCH"

@@ -41,10 +41,15 @@ type Manager struct {
 
 // NewManager creates a new session manager
 func NewManager(cfg *config.Config) *Manager {
+	ttl := cfg.Session.TTL
+	if ttl <= 0 {
+		ttl = config.DefaultSessionTTL
+	}
+
 	m := &Manager{
 		sessions:    make(map[string]*Session),
 		cfg:         cfg,
-		sessionTTL:  30 * time.Minute, // Default session TTL
+		sessionTTL:  ttl,
 		cleanupStop: make(chan struct{}),
 	}
 

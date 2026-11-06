@@ -35,6 +35,8 @@ data:
   RATE_LIMIT_PASSWORD_RESET_REQUESTS: {{ .Values.config.rateLimit.passwordResetRequests | quote }}
   RATE_LIMIT_PASSWORD_RESET_WINDOW: {{ .Values.config.rateLimit.passwordResetWindow | quote }}
 
+  SESSION_TTL_MINUTES: {{ .Values.config.session.ttlMinutes | quote }}
+
   CORS_ALLOWED_ORIGINS: {{ .Values.config.cors.allowedOrigins | quote }}
   CORS_ALLOWED_METHODS: {{ .Values.config.cors.allowedMethods | quote }}
   CORS_ALLOWED_HEADERS: {{ .Values.config.cors.allowedHeaders | quote }}

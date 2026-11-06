@@ -584,6 +584,7 @@ Response:
 | AD_LEAD_GROUP_WILDCARD | Replaces the matched suffix in the derived base-group identifier | -* |
 | RATE_LIMIT_PASSWORD_RESET_REQUESTS | Password resets allowed per user per window; `0` disables throttling | 10 |
 | RATE_LIMIT_PASSWORD_RESET_WINDOW | Rate limit window in seconds | 60 |
+| SESSION_TTL_MINUTES | Session idle timeout in minutes (see [Session Lifetime](#session-lifetime)); must be greater than 0 | 30 |
 | TLS_ENABLED | Enable HTTPS | true |
 | TLS_CERT_FILE | Path to TLS certificate | certs/server.crt |
 | TLS_KEY_FILE | Path to TLS private key | certs/server.key |
@@ -712,6 +713,21 @@ Setting `RATE_LIMIT_PASSWORD_RESET_REQUESTS=0` disables throttling entirely. Lim
 tracked per process and held in memory, so a multi-replica deployment applies the limit
 per replica rather than across the cluster.
 
+### Session Lifetime
+
+A user stays signed in until they have been idle for `SESSION_TTL_MINUTES` (default `30`).
+The timeout is sliding: every authenticated request extends the session by the full
+amount, so an active user is never signed out, while an idle one is rejected with
+`Invalid or expired session` and must log in again.
+
+```bash
+SESSION_TTL_MINUTES=60   # idle timeout in minutes; must be greater than 0
+```
+
+With Helm, set `config.session.ttlMinutes`. Sessions (and the LDAP connection behind each)
+are held in memory, so a restart or pod reschedule signs everyone out whatever the TTL is.
+A longer TTL keeps more idle LDAP connections open, so raise it deliberately.
+
 ### LDAPS Configuration
 
 To use LDAPS (LDAP over SSL):
@@ -812,6 +828,7 @@ Key values (see [`charts/adel/values.yaml`](charts/adel/values.yaml) for the ful
 | `config.ad.leadGroupWildcard` | Replaces the matched suffix in the derived identifier | `"-*"` |
 | `config.rateLimit.passwordResetRequests` | Password resets allowed per user per window; `"0"` disables throttling | `"10"` |
 | `config.rateLimit.passwordResetWindow` | Rate limit window in seconds | `"60"` |
+| `config.session.ttlMinutes` | Session idle timeout in minutes | `"30"` |
 | `ingress.enabled` | Expose via Ingress | `false` |
 | `autoscaling.enabled` | Enable HPA | `false` |
 
