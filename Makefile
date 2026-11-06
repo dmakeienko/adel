@@ -15,6 +15,7 @@ build-ui:
 	cd $(WEB_DIR) && npm ci && npm run build
 	rm -rf static/dist
 	cp -r $(WEB_DIR)/dist static/dist
+	touch static/dist/.gitkeep
 
 # Build the Go binary (embeds whatever is in static/dist/)
 build:

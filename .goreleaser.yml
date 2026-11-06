@@ -21,5 +21,10 @@ archives:
       - tar.gz
     name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
 
+# release-please creates the GitHub release and writes its notes; GoReleaser
+# only attaches the archives to it.
+release:
+  mode: keep-existing
+
 changelog:
-  use: github-native
+  disable: true
