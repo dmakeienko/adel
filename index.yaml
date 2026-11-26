@@ -2,6 +2,22 @@ apiVersion: v1
 entries:
   adel:
   - apiVersion: v2
+    appVersion: 1.9.2
+    created: "2026-11-26T11:55:34.053273273Z"
+    description: Active Directory Engagement Layer - REST API + UI for Active Directory
+      over LDAP/LDAPS
+    digest: 350a8d8f8954a540a93c97ffe21bd58725d72630ef0386f48c213eaffa79ad65
+    home: https://github.com/dmakeienko/adel
+    maintainers:
+    - name: dmakeienko
+    name: adel
+    sources:
+    - https://github.com/dmakeienko/adel
+    type: application
+    urls:
+    - https://github.com/dmakeienko/adel/releases/download/adel-1.9.2/adel-1.9.2.tgz
+    version: 1.9.2
+  - apiVersion: v2
     appVersion: 1.9.1
     created: "2026-11-26T09:35:25.59841343Z"
     description: Active Directory Engagement Layer - REST API + UI for Active Directory
@@ -209,4 +225,4 @@ entries:
     urls:
     - https://github.com/dmakeienko/adel/releases/download/adel-1.3.0/adel-1.3.0.tgz
     version: 1.3.0
-generated: "2026-11-26T09:35:25.598476828Z"
+generated: "2026-11-26T11:55:34.053340973Z"
