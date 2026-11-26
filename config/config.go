@@ -112,11 +112,19 @@ type RateLimitConfig struct {
 // DefaultSessionTTL is how long a session may sit idle before it expires.
 const DefaultSessionTTL = 30 * time.Minute
 
+// DefaultSessionKeepalive is how often each session's LDAP connection is exercised.
+// Active Directory drops connections idle for MaxConnIdleTime (900s by default), so
+// this has to stay comfortably below that.
+const DefaultSessionKeepalive = 5 * time.Minute
+
 // SessionConfig holds session lifetime configuration.
 type SessionConfig struct {
 	// TTL is the idle timeout: a session expires this long after its last
 	// authenticated request, and every request pushes the expiry out again.
 	TTL time.Duration
+	// Keepalive is how often each session's LDAP connection is exercised so the
+	// directory does not close it as idle. Zero disables the keepalive.
+	Keepalive time.Duration
 }
 
 // Load loads configuration from environment variables
@@ -173,7 +181,8 @@ func Load() (*Config, error) {
 			PasswordResetWindow:   getDurationEnv("RATE_LIMIT_PASSWORD_RESET_WINDOW", 60) * time.Second,
 		},
 		Session: SessionConfig{
-			TTL: time.Duration(getIntEnv("SESSION_TTL_MINUTES", int(DefaultSessionTTL/time.Minute))) * time.Minute,
+			TTL:       time.Duration(getIntEnv("SESSION_TTL_MINUTES", int(DefaultSessionTTL/time.Minute))) * time.Minute,
+			Keepalive: time.Duration(getIntEnv("SESSION_KEEPALIVE_SECONDS", int(DefaultSessionKeepalive/time.Second))) * time.Second,
 		},
 	}
 
@@ -194,6 +203,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Session.TTL <= 0 {
 		return fmt.Errorf("SESSION_TTL_MINUTES must be greater than 0")
+	}
+	if c.Session.Keepalive < 0 {
+		return fmt.Errorf("SESSION_KEEPALIVE_SECONDS must be 0 (disabled) or greater")
 	}
 	return nil
 }

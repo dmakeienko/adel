@@ -30,13 +30,22 @@ type Session struct {
 	ExpiresAt  time.Time
 }
 
+// ErrConnectionLost is returned for a session whose LDAP connection has been closed,
+// typically by the directory after the connection sat idle. The session cannot be
+// used again because the user's credentials are not kept to rebind.
+var ErrConnectionLost = fmt.Errorf("session connection lost")
+
 // Manager manages user sessions and their LDAP connections
 type Manager struct {
 	sessions    map[string]*Session
 	mu          sync.RWMutex
 	cfg         *config.Config
 	sessionTTL  time.Duration
+	keepalive   time.Duration
 	cleanupStop chan struct{}
+	// pingConn issues one cheap request on a connection. A field so tests can
+	// replace the real directory round trip.
+	pingConn func(*ldap.Conn) error
 }
 
 // NewManager creates a new session manager
@@ -50,11 +59,17 @@ func NewManager(cfg *config.Config) *Manager {
 		sessions:    make(map[string]*Session),
 		cfg:         cfg,
 		sessionTTL:  ttl,
+		keepalive:   cfg.Session.Keepalive,
 		cleanupStop: make(chan struct{}),
+		pingConn:    pingRootDSE,
 	}
 
 	// Start cleanup goroutine
 	go m.cleanupExpiredSessions()
+
+	if m.keepalive > 0 {
+		go m.keepConnectionsAlive()
+	}
 
 	return m
 }
@@ -176,6 +191,18 @@ func (m *Manager) GetSession(sessionID string) (*Session, error) {
 		}
 		delete(m.sessions, sessionID)
 		return nil, fmt.Errorf("session expired")
+	}
+
+	// The directory closed the connection (idle timeout, DC restart). Every request
+	// on it would fail, so end the session now and let the caller answer 401.
+	if session.Conn != nil && session.Conn.IsClosing() {
+		session.Conn.Close()
+		delete(m.sessions, sessionID)
+		slog.Info("Session ended: LDAP connection was closed",
+			"username", session.Username,
+			"session_id", sessionID,
+		)
+		return nil, ErrConnectionLost
 	}
 
 	// Update last access time and extend expiration
@@ -412,6 +439,99 @@ func (m *Manager) cleanupExpiredSessions() {
 			return
 		}
 	}
+}
+
+// keepConnectionsAlive periodically sends a request on every live session's LDAP
+// connection. Active Directory closes connections idle longer than MaxConnIdleTime
+// (900s by default); without traffic, a user who pauses for that long finds their
+// session unusable even though its TTL has not elapsed.
+func (m *Manager) keepConnectionsAlive() {
+	ticker := time.NewTicker(m.keepalive)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			m.pingSessions()
+		case <-m.cleanupStop:
+			return
+		}
+	}
+}
+
+// pingSessions pings every unexpired session's connection once, concurrently so one
+// slow connection does not delay the rest, and ends sessions whose connection is dead.
+// It does not touch LastAccess or ExpiresAt: keepalive traffic must not stop an
+// abandoned session from expiring.
+func (m *Manager) pingSessions() {
+	type target struct {
+		id   string
+		conn *ldap.Conn
+	}
+
+	m.mu.RLock()
+	now := time.Now()
+	targets := make([]target, 0, len(m.sessions))
+	for id, s := range m.sessions {
+		if s.Conn != nil && now.Before(s.ExpiresAt) {
+			targets = append(targets, target{id: id, conn: s.Conn})
+		}
+	}
+	m.mu.RUnlock()
+
+	var wg sync.WaitGroup
+	for _, t := range targets {
+		wg.Go(func() {
+			if t.conn.IsClosing() {
+				m.dropSession(t.id, t.conn, ErrConnectionLost)
+				return
+			}
+			err := m.pingConn(t.conn)
+			if err == nil {
+				return
+			}
+			if t.conn.IsClosing() || ldap.IsErrorWithCode(err, ldap.ErrorNetwork) {
+				m.dropSession(t.id, t.conn, err)
+				return
+			}
+			// The connection answered, just not with success; it is still usable.
+			slog.Warn("LDAP keepalive request failed", "session_id", t.id, "error", err)
+		})
+	}
+	wg.Wait()
+}
+
+// dropSession removes a session whose connection has failed. It checks the session
+// still holds conn, so it never removes a session that changed in the meantime.
+func (m *Manager) dropSession(id string, conn *ldap.Conn, reason error) {
+	m.mu.Lock()
+	s, ok := m.sessions[id]
+	if !ok || s.Conn != conn {
+		m.mu.Unlock()
+		return
+	}
+	delete(m.sessions, id)
+	m.mu.Unlock()
+
+	conn.Close()
+	slog.Info("Session ended: LDAP connection lost",
+		"username", s.Username,
+		"session_id", id,
+		"error", reason,
+	)
+}
+
+// pingRootDSE reads one attribute of the rootDSE, which every directory serves to
+// any bound client. It is the cheapest request that counts as activity for AD.
+func pingRootDSE(conn *ldap.Conn) error {
+	_, err := conn.Search(ldap.NewSearchRequest(
+		"", ldap.ScopeBaseObject, ldap.NeverDerefAliases,
+		1, 10, false,
+		"(objectClass=*)",
+		[]string{"currentTime"},
+		nil,
+	))
+	return err
 }
 
 // Stop stops the session manager and closes all connections

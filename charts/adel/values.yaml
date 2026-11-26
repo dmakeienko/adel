@@ -140,6 +140,10 @@ config:
     # Idle timeout in minutes. A session expires this long after its last request;
     # each request extends it. Sessions are in memory, so a pod restart signs users out.
     ttlMinutes: "30"
+    # Seconds between keepalive requests on each session's LDAP connection. Keep it
+    # below AD's MaxConnIdleTime (900s by default) or idle users get signed out early.
+    # "0" disables the keepalive.
+    keepaliveSeconds: "300"
 
   cors:
     allowedOrigins: "*"
