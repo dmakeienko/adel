@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.9.2](https://github.com/dmakeienko/adel/compare/v1.9.1...v1.9.2) (2026-11-26)
+
+
+### Bug Fixes
+
+* keep LDAP connections alive so idle users stay signed in ([#101](https://github.com/dmakeienko/adel/issues/101)) ([ad76d72](https://github.com/dmakeienko/adel/commit/ad76d7257cb609e3e54381c00a485f76d92fcbc2))
+
+
+### Dependencies
+
+* **deps-dev:** bump vite from 8.1.2 to 8.3.8 in /web ([#97](https://github.com/dmakeienko/adel/issues/97)) ([0ce8fbb](https://github.com/dmakeienko/adel/commit/0ce8fbb19aadf6f69a9f3427f6fb4be87ddc8f26))
+* **deps-dev:** bump vitest from 4.1.9 to 4.1.11 in /web ([#98](https://github.com/dmakeienko/adel/issues/98)) ([ba84084](https://github.com/dmakeienko/adel/commit/ba840840c17953fd41868887dc75eac553d57bea))
+* **deps:** bump node ([#89](https://github.com/dmakeienko/adel/issues/89)) ([fa551b8](https://github.com/dmakeienko/adel/commit/fa551b84bfee74427d266d23a7f9413930514c7c))
+* **deps:** bump the github-actions group across 1 directory with 5 updates ([#90](https://github.com/dmakeienko/adel/issues/90)) ([8104eb7](https://github.com/dmakeienko/adel/commit/8104eb7c83bd06d1cb5f9047214569039a24806f))
+* **deps:** bump the web-dependencies group across 1 directory with 22 updates ([#100](https://github.com/dmakeienko/adel/issues/100)) ([5c84ff4](https://github.com/dmakeienko/adel/commit/5c84ff4267ba25238052241ae52e3bdb9082936a))
+
 ## [1.9.1](https://github.com/dmakeienko/adel/compare/v1.9.0...v1.9.1) (2026-11-26)
 
 
