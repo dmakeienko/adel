@@ -148,12 +148,15 @@ jobs:
           git config user.name "$GITHUB_ACTOR"
           git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
 
-      - name: Verify chart version matches the release
+      # appVersion is the chart's default image tag, so a stale value would
+      # ship a chart that deploys the previous release's image.
+      - name: Verify chart version and appVersion match the release
         run: |
           VERSION="${TAG_NAME#v}"
           CHART_VERSION="$(sed -n 's/^version: *\([^ #]*\).*/\1/p' charts/adel/Chart.yaml)"
-          if [ "$CHART_VERSION" != "$VERSION" ]; then
-            echo "::error file=charts/adel/Chart.yaml::Chart version ${CHART_VERSION} does not match release ${VERSION}"
+          APP_VERSION="$(sed -n 's/^appVersion: *"\{0,1\}\([^" #]*\).*/\1/p' charts/adel/Chart.yaml)"
+          if [ "$CHART_VERSION" != "$VERSION" ] || [ "$APP_VERSION" != "$VERSION" ]; then
+            echo "::error file=charts/adel/Chart.yaml::Chart version ${CHART_VERSION} / appVersion ${APP_VERSION} do not both match release ${VERSION}"
             exit 1
           fi
         env:
