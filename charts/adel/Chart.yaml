@@ -4,8 +4,8 @@ description: Active Directory Engagement Layer - REST API + UI for Active Direct
 type: application
 # Both versions are bumped by release-please in the release PR (see
 # release-please-config.json "extra-files"). Do not edit them by hand.
-version: 1.9.1 # x-release-please-version
-appVersion: "1.9.1" # x-release-please-version
+version: 1.9.2 # x-release-please-version
+appVersion: "1.9.2" # x-release-please-version
 home: https://github.com/dmakeienko/adel
 sources:
   - https://github.com/dmakeienko/adel
