@@ -1,6 +1,6 @@
 module adel
 
-go 1.27.3
+go 1.27.4
 
 require (
 	github.com/go-ldap/ldap/v3 v3.4.15
