@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.9.1](https://github.com/dmakeienko/adel/compare/v1.9.0...v1.9.1) (2026-11-26)
+
+
+### CI/CD
+
+* speed up pipeline, fix release PR approvals and broaden security scanning ([#88](https://github.com/dmakeienko/adel/issues/88)) ([a21691c](https://github.com/dmakeienko/adel/commit/a21691cd7816c4c5958ffce803b78232199a3552))
+
+
+### Dependencies
+
+* **deps:** bump the github-actions group with 6 updates ([#84](https://github.com/dmakeienko/adel/issues/84)) ([15d1bfd](https://github.com/dmakeienko/adel/commit/15d1bfd7a766bfa3fcf225ba7417be06bde6d06e))
+
 ## [1.9.0](https://github.com/dmakeienko/adel/compare/v1.8.0...v1.9.0) (2026-11-06)
 
 
