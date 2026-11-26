@@ -6,6 +6,7 @@ import {
   useCallback,
   type ReactNode,
 } from 'react';
+import axios from 'axios';
 import type { User, LoginRequest } from '../types';
 import api from '../services/api';
 
@@ -93,14 +94,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setLeadGroups([]);
         api.setSessionId(null);
       }
-    } catch {
+    } catch (error) {
       setUser(null);
       setIsAuthenticated(false);
       setCanSearch(false);
       setCanResetPassword(false);
       setCanManageGroupMembers(false);
       setLeadGroups([]);
-      api.setSessionId(null);
+      // Only the server saying the session is gone ends it. A network blip, a 5xx or a
+      // pod rollout keeps the stored ID, so reloading once the server answers again
+      // resumes the session instead of forcing a fresh sign-in.
+      if (axios.isAxiosError(error) && error.response?.status === 401) {
+        api.setSessionId(null);
+      }
     } finally {
       setIsLoading(false);
     }

@@ -846,3 +846,40 @@ func TestLoadSessionTTLRejectsNonPositive(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadSessionKeepalive(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		want    time.Duration
+		wantErr bool
+	}{
+		{"default", "", DefaultSessionKeepalive, false},
+		{"override", "45", 45 * time.Second, false},
+		{"zero disables", "0", 0, false},
+		{"negative rejected", "-1", 0, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("AD_SERVER", "test-ad.example.com")
+			t.Setenv("AD_BASE_DN", "dc=test,dc=com")
+			if tt.value != "" {
+				t.Setenv("SESSION_KEEPALIVE_SECONDS", tt.value)
+			}
+
+			cfg, err := Load()
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("Load() expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if cfg.Session.Keepalive != tt.want {
+				t.Errorf("Session.Keepalive = %v, want %v", cfg.Session.Keepalive, tt.want)
+			}
+		})
+	}
+}

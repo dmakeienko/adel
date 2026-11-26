@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"math"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -1382,5 +1383,35 @@ func TestNestedGroupSearchRequestUsesViewedUsersGroups(t *testing.T) {
 	const want = "(&(objectClass=group)(|(member:1.2.840.113556.1.4.1941:=CN=Target Engineering,OU=Groups,DC=example,DC=com)(member:1.2.840.113556.1.4.1941:=CN=Target Support,OU=Groups,DC=example,DC=com)))"
 	if request.Filter != want {
 		t.Errorf("nested group filter =\n  %q\nwant\n  %q", request.Filter, want)
+	}
+}
+
+func TestGetCurrentUserConnectionLostReturns401(t *testing.T) {
+	cfg := &config.Config{
+		AD: config.ADConfig{Server: "test-ad", Port: 389, BaseDN: "dc=test,dc=com"},
+	}
+	h := NewHandler(cfg, nil)
+
+	client, server := net.Pipe()
+	conn := ldap.NewConn(client, false)
+	conn.Start()
+	defer conn.Close()
+	server.Close()
+	deadline := time.Now().Add(2 * time.Second)
+	for !conn.IsClosing() {
+		if time.Now().After(deadline) {
+			t.Fatal("connection did not register the close")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	sess := &session.Session{Username: testUsername, UserDN: "CN=u,DC=test,DC=com", Conn: conn}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/me", nil)
+	req = req.WithContext(context.WithValue(req.Context(), middleware.SessionContextKey, sess))
+	rr := httptest.NewRecorder()
+	h.GetCurrentUser(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusUnauthorized)
 	}
 }

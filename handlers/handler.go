@@ -1510,6 +1510,18 @@ func (h *Handler) GetCurrentUser(w http.ResponseWriter, r *http.Request) {
 
 	user, err := h.getUserByDN(sess.Conn, sess.UserDN)
 	if err != nil {
+		if h.endSessionIfConnectionLost(sess, err) {
+			writeJSON(w, http.StatusUnauthorized, models.UserResponse{
+				Success: false,
+				Error:   "Session expired, please sign in again",
+			})
+			return
+		}
+		slog.Error("Failed to get current user",
+			logKeyUsername, sess.Username,
+			logKeyUserDN, sess.UserDN,
+			"error", err,
+		)
 		writeJSON(w, http.StatusInternalServerError, models.UserResponse{
 			Success: false,
 			Error:   fmt.Sprintf("Failed to get user: %v", err),
@@ -1521,6 +1533,24 @@ func (h *Handler) GetCurrentUser(w http.ResponseWriter, r *http.Request) {
 		Success: true,
 		User:    user,
 	})
+}
+
+// endSessionIfConnectionLost ends sess and reports true when err shows its LDAP
+// connection is gone. Such a session can never succeed again, so the caller should
+// answer 401 and let the user sign in, not report a server error.
+func (h *Handler) endSessionIfConnectionLost(sess *session.Session, err error) bool {
+	connClosed := sess.Conn != nil && sess.Conn.IsClosing()
+	if !connClosed && !ldap.IsErrorWithCode(err, ldap.ErrorNetwork) {
+		return false
+	}
+	slog.Info("LDAP connection lost during request, ending session",
+		logKeyUsername, sess.Username,
+		"error", err,
+	)
+	if h.sessionMgr != nil {
+		_ = h.sessionMgr.Logout(sess.ID)
+	}
+	return true
 }
 
 // Search performs a general LDAP search with custom baseDN and filter
