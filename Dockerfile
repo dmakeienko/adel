@@ -2,7 +2,7 @@
 # cross-compile for $TARGETPLATFORM, so multi-arch builds need no QEMU emulation.
 
 # Stage 1 — build the React frontend (build-only; no node artifacts reach the runtime image)
-FROM --platform=$BUILDPLATFORM node:24-alpine AS ui-builder
+FROM --platform=$BUILDPLATFORM node:26-alpine AS ui-builder
 
 WORKDIR /app/web
 
