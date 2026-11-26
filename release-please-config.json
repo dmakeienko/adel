@@ -3,6 +3,7 @@
   "packages": {
     ".": {
       "release-type": "simple",
+      "extra-files": [{ "type": "generic", "path": "charts/adel/Chart.yaml" }],
       "changelog-sections": [
         { "type": "feat", "section": "Features" },
         { "type": "fix", "section": "Bug Fixes" },

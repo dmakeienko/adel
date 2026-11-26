@@ -9,6 +9,20 @@ updates:
         patterns:
           - "*"
 
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: weekly
+    groups:
+      # Patch/minor updates arrive as one PR; majors stay separate so a
+      # breaking upgrade can be reviewed (or closed) on its own.
+      web-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -22,3 +36,7 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    groups:
+      docker-images:
+        patterns:
+          - "*"

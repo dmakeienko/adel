@@ -1,6 +1,8 @@
+# Build stages run on the native build platform ($BUILDPLATFORM) and
+# cross-compile for $TARGETPLATFORM, so multi-arch builds need no QEMU emulation.
+
 # Stage 1 — build the React frontend (build-only; no node artifacts reach the runtime image)
-# hadolint ignore=DL3007
-FROM node:lts-alpine AS ui-builder
+FROM --platform=$BUILDPLATFORM node:24-alpine AS ui-builder
 
 WORKDIR /app/web
 
@@ -11,7 +13,7 @@ COPY web/ ./
 RUN npm run build
 
 # Stage 2 — build the Go binary with embedded assets
-FROM golang:1.27.3-alpine AS go-builder
+FROM --platform=$BUILDPLATFORM golang:1.27.4-alpine AS go-builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
